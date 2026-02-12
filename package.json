@@ -1,0 +1,32 @@
+{
+  "name": "stockvision:-contributor-insights",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "split-valentines": "python scripts/split-prompts-into-jsons.py",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "prestart": "kill-port 3000 3001",
+    "start": "concurrently -n server,app -c cyan,magenta \"npm run server\" \"npm run dev\""
+  },
+  "dependencies": {
+    "@google/genai": "^1.40.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.4",
+    "express": "^4.21.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "recharts": "^3.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.0.0",
+    "kill-port": "^2.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "StockVision: Contributor Insights",
+  "description": "An AI-powered trend analyzer for stock photographers and videographers, identifying upcoming events and high-demand content niches using Gemini and market data.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
