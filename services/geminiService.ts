@@ -8,21 +8,40 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 import calendarCsv from "../event_calendar_2026.csv?raw";
 
 /**
- * Utility to execute a generateContent call with a fallback model if 500 occurs
+ * Utility to execute a generateContent call with cascading fallback models.
+ * Falls back on: 500, 503, 429, INTERNAL, UNAVAILABLE, RESOURCE_EXHAUSTED, or any network error.
  */
-async function generateWithFallback(parameters: any, fallbackModel: string = 'gemini-2.5-flash') {
-  try {
-    return await ai.models.generateContent(parameters);
-  } catch (error: any) {
-    if (error?.message?.includes('500') || error?.status === 'INTERNAL') {
-      console.warn(`Gemini 500 error, falling back to ${fallbackModel}`);
+async function generateWithFallback(
+  parameters: any,
+  fallbackModels: string[] = ['gemini-2.5-flash', 'gemini-2.0-flash']
+) {
+  const models = [parameters.model, ...fallbackModels];
+  let lastError: any;
+
+  for (let i = 0; i < models.length; i++) {
+    try {
       return await ai.models.generateContent({
         ...parameters,
-        model: fallbackModel
+        model: models[i],
       });
+    } catch (error: any) {
+      lastError = error;
+      const msg = error?.message || '';
+      const status = error?.status || '';
+      const isRetryable =
+        msg.includes('500') || msg.includes('503') || msg.includes('429') ||
+        msg.includes('RESOURCE_EXHAUSTED') || msg.includes('overloaded') ||
+        msg.includes('rate') || msg.includes('quota') ||
+        status === 'INTERNAL' || status === 'UNAVAILABLE' || status === 'RESOURCE_EXHAUSTED';
+
+      if (isRetryable && i < models.length - 1) {
+        console.warn(`Model ${models[i]} failed (${msg.slice(0, 80)}), falling back to ${models[i + 1]}`);
+        continue;
+      }
+      throw error;
     }
-    throw error;
   }
+  throw lastError;
 }
 
 /** Short, search-friendly keywords for TrackAdobe (single words or 2-word phrases, like: romantic, red, glitter, hearts, bokeh, valentine, promotions). */
@@ -46,24 +65,43 @@ const MAX_ITEMS_FOR_PROMPT = 200;
 
 export const analyzeMarketData = async (eventName: string, rawData: StockInsight[]): Promise<AnalysisResult> => {
   const slice = rawData.slice(0, MAX_ITEMS_FOR_PROMPT);
-  const dataString = rawData.length > 0 ? JSON.stringify(slice) : "NO_RAW_DATA_AVAILABLE";
-  const truncatedNote = rawData.length > MAX_ITEMS_FOR_PROMPT ? ` (Showing first ${MAX_ITEMS_FOR_PROMPT} of ${rawData.length} items.)` : "";
+
+  // Build a detailed summary of each asset for Gemini
+  const assetSummaries = slice.map((img, i) => ({
+    rank: i + 1,
+    title: img.title,
+    downloads: img.downloads,
+    creator: img.creator,
+    creatorId: img.creatorId,
+    mediaType: img.mediaType,
+    category: img.category,
+    contentType: img.contentType,
+    dimensions: img.dimensions,
+    uploadDate: img.uploadDate,
+    keywords: img.keywords?.slice(0, 20),
+    isAI: img.isAI,
+    premium: img.premium,
+  }));
+
+  const dataString = rawData.length > 0 ? JSON.stringify(assetSummaries) : "NO_DATA";
+  const truncatedNote = rawData.length > MAX_ITEMS_FOR_PROMPT ? ` (Showing top ${MAX_ITEMS_FOR_PROMPT} of ${rawData.length} total assets.)` : "";
 
   const response = await generateWithFallback({
     model: "gemini-3-pro-preview",
     contents: {
       parts: [{
         text: `
-STRICT MARKET ANALYSIS PROTOCOL:
-Target Event: "${eventName}"
-DATA SOURCE: ${dataString === "NO_RAW_DATA_AVAILABLE" ? "Direct API fetch failed. Use GOOGLE SEARCH to find actual top-performing assets on Adobe Stock." : `Analyze this real market data: ${dataString}${truncatedNote}`}
+You are an Adobe Stock market analyst. I searched AdobeStock for the event "${eventName}" and retrieved ${rawData.length} filtered assets.${truncatedNote}
 
-TASK:
-1. Analyze creators and styles.
-2. Identify content saturation gaps and suggest what we can make.
-3. Generate a Creative Brief and Shot List (4 items: idea, type Image or Video, description).
-4. Provide projected market trends (month, demand, saturation).
-Response MUST be JSON.`
+Here is the FULL market data from TrackAdobe Stock (each asset with title, downloads, creator, media type, category, upload date, keywords, and AI flag):
+${dataString === "NO_DATA" ? "No data was available from AdobeStock. Use Google Search to find actual top-performing Adobe Stock assets for this event." : dataString}
+
+Your task:
+1. **Top Sellers**: Identify which specific assets or styles are getting the MOST downloads. Name the top patterns, styles, and subjects that buyers are purchasing.
+2. **What to Create**: Based on what's selling well, suggest 6-8 specific content ideas we MUST create to compete. For each, explain WHY it works based on the market data (e.g. "similar assets averaging 500+ downloads").
+3. **Trends**: Provide projected monthly demand vs. content saturation for this event (4-6 months).
+
+Be data-driven. Reference actual download counts and patterns from the data. Response MUST be JSON.`
       }]
     },
     config: {
@@ -77,7 +115,6 @@ Response MUST be JSON.`
             properties: {
               event: { type: Type.STRING },
               bestSellers: { type: Type.ARRAY, items: { type: Type.STRING } },
-              missingNiches: { type: Type.ARRAY, items: { type: Type.STRING } },
               shotList: {
                 type: Type.ARRAY,
                 items: {
@@ -85,17 +122,14 @@ Response MUST be JSON.`
                   properties: {
                     idea: { type: Type.STRING },
                     type: { type: Type.STRING },
-                    description: { type: Type.STRING }
+                    description: { type: Type.STRING },
+                    whyItWorks: { type: Type.STRING }
                   },
-                  required: ["idea", "type", "description"]
+                  required: ["idea", "type", "description", "whyItWorks"]
                 }
-              },
-              colorPalette: { type: Type.ARRAY, items: { type: Type.STRING } },
-              compositionTips: { type: Type.ARRAY, items: { type: Type.STRING } },
-              technicalSpecs: { type: Type.STRING },
-              suggestedKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+              }
             },
-            required: ["event", "bestSellers", "missingNiches", "shotList", "colorPalette", "compositionTips", "technicalSpecs", "suggestedKeywords"]
+            required: ["event", "bestSellers", "shotList"]
           },
           trends: {
             type: Type.ARRAY,
@@ -108,27 +142,9 @@ Response MUST be JSON.`
               },
               required: ["month", "demand", "saturation"]
             }
-          },
-          insights: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                title: { type: Type.STRING },
-                downloads: { type: Type.STRING },
-                premium: { type: Type.STRING },
-                creator: { type: Type.STRING },
-                mediaType: { type: Type.STRING },
-                dimensions: { type: Type.STRING },
-                uploadDate: { type: Type.STRING },
-                keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                thumbnailUrl: { type: Type.STRING }
-              }
-            }
           }
         },
-        required: ["brief", "trends", "insights"]
+        required: ["brief", "trends"]
       }
     }
   });
@@ -136,7 +152,7 @@ Response MUST be JSON.`
   const parsed = JSON.parse(response.text || "{}");
   return {
     ...parsed,
-    insights: rawData.length > 0 ? rawData : (parsed.insights || []),
+    insights: rawData,
     sources: (response.candidates?.[0]?.groundingMetadata?.groundingChunks || []) as GroundingSource[]
   };
 };
@@ -244,11 +260,10 @@ export const generateImagePrompts = async (
   const imageItems = brief.shotList.filter((s) => s.type === "Image");
   const shotListText = imageItems.length > 0
     ? imageItems.map((s) => `- ${s.idea}: ${s.description}`).join("\n")
-    : brief.suggestedKeywords.slice(0, 10).join(", ");
+    : brief.bestSellers.slice(0, 10).join(", ");
   const promptIntro = `
 Event: ${eventName}
-Creative direction: ${brief.compositionTips.join("; ")}
-Color palette: ${brief.colorPalette.join(", ")}
+Top sellers: ${brief.bestSellers.join(", ")}
 Shot ideas (Image only):\n${shotListText}
 
 Generate exactly 25 distinct image prompts for Nano Banana Pro. Each prompt must be a single image (no video). Vary scene, style, composition, lighting, and color. Return a JSON array of 25 objects matching this schema.`;

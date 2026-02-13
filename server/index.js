@@ -6,12 +6,15 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import { GoogleGenAI } from "@google/genai";
+
+const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const PORT = process.env.PORT || 3001;
 const app = express();
 
 app.use(cors({ origin: true }));
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 
 function getCookieHeader() {
   if (process.env.TRACK_ADOBE_COOKIES) {
@@ -56,9 +59,9 @@ function mapImages(data) {
     const kwList =
       typeof keywords === "string"
         ? keywords
-            .split(",")
-            .map((k) => k.trim())
-            .filter(Boolean)
+          .split(",")
+          .map((k) => k.trim())
+          .filter(Boolean)
         : Array.isArray(keywords) ? keywords : [];
     return {
       id: img.id ?? "",
@@ -114,10 +117,12 @@ app.get("/api/track-adobe", async (req, res) => {
   }
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const aiOnly = req.query.ai_only === "1" || req.query.ai_only === "true";
+  const contentType = req.query.content_type; // photo, video, vector, illustration
 
   const encodedQuery = encodeURIComponent(q);
   let url = `https://trackadobestock.com/search?q=${encodedQuery}`;
   if (aiOnly) url += "&generative_ai=only";
+  if (contentType && contentType !== 'all') url += `&content_type=${contentType}`;
   if (page > 1) url += `&page=${page}`;
   url += "&_rsc=1gn38";
 
@@ -150,6 +155,113 @@ app.get("/api/track-adobe", async (req, res) => {
       error: "TrackAdobe proxy error",
       message: err.message,
     });
+  }
+});
+
+// ── Image Generation (Nano Banana Pro) ────────────────────────
+app.post("/api/generate-image", async (req, res) => {
+  try {
+    const p = req.body;
+    if (!p || !p.scene) {
+      return res.status(400).json({ error: "Missing prompt data (scene required)" });
+    }
+
+    // Build a rich prompt from structured fields
+    const parts = [
+      p.scene,
+      p.style ? `Style: ${p.style}` : "",
+      p.shot?.composition ? `Composition: ${p.shot.composition}` : "",
+      p.shot?.lens ? `Lens: ${p.shot.lens}` : "",
+      p.lighting?.primary ? `Lighting: ${p.lighting.primary}` : "",
+      p.color_palette?.background ? `Background color: ${p.color_palette.background}` : "",
+      p.color_palette?.ink_primary ? `Primary color: ${p.color_palette.ink_primary}` : "",
+      p.constraints?.length ? `Constraints: ${p.constraints.join(", ")}` : "",
+      p.negativePrompt ? `Avoid: ${p.negativePrompt}` : "",
+    ].filter(Boolean).join(". ");
+
+    // Build imageConfig from settings
+    const imageConfig = {};
+    if (p.aspectRatio) imageConfig.aspectRatio = p.aspectRatio;
+    if (p.imageSize) imageConfig.imageSize = p.imageSize;
+
+    const response = await genai.models.generateContent({
+      model: "gemini-3-pro-image-preview",
+      contents: parts,
+      config: {
+        responseModalities: ["image", "text"],
+        ...(Object.keys(imageConfig).length > 0 && { imageConfig }),
+      },
+    });
+
+    // Extract image from response
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        const mimeType = part.inlineData.mimeType || "image/png";
+        const dataUrl = `data:${mimeType};base64,${part.inlineData.data}`;
+        return res.json({ image: dataUrl });
+      }
+    }
+
+    return res.status(422).json({ error: "Model returned no image. Try a different prompt." });
+  } catch (err) {
+    console.error("Image generation error:", err.message || err);
+    return res.status(500).json({ error: err.message || "Image generation failed" });
+  }
+});
+
+// ── 4K Upscale (Nano Banana Pro) ──────────────────────────────
+app.post("/api/upscale-image", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: "Missing image data" });
+    }
+
+    // Extract base64 data and mime type from data URL
+    const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!match) {
+      return res.status(400).json({ error: "Invalid image data URL format" });
+    }
+    const [, mimeType, base64Data] = match;
+
+    const response = await genai.models.generateContent({
+      model: "gemini-3-pro-image-preview",
+      contents: [
+        {
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Data,
+              },
+            },
+            {
+              text: "Upscale this image to the highest possible resolution. Keep every detail, color, and composition exactly the same. Do not change, add, or remove anything — only increase the resolution.",
+            },
+          ],
+        },
+      ],
+      config: {
+        responseModalities: ["image", "text"],
+        imageConfig: {
+          imageSize: "4K",
+        },
+      },
+    });
+
+    // Extract upscaled image
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        const outMime = part.inlineData.mimeType || "image/png";
+        const dataUrl = `data:${outMime};base64,${part.inlineData.data}`;
+        return res.json({ image: dataUrl });
+      }
+    }
+
+    return res.status(422).json({ error: "Model returned no upscaled image." });
+  } catch (err) {
+    console.error("Upscale error:", err.message || err);
+    return res.status(500).json({ error: err.message || "Upscale failed" });
   }
 });
 

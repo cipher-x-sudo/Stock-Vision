@@ -25,16 +25,12 @@ export interface MarketTrend {
 export interface CreativeBrief {
   event: string;
   bestSellers: string[];
-  missingNiches: string[];
   shotList: {
     idea: string;
     type: 'Image' | 'Video';
     description: string;
+    whyItWorks: string;
   }[];
-  colorPalette: string[];
-  compositionTips: string[];
-  technicalSpecs: string;
-  suggestedKeywords: string[];
 }
 
 export interface UpcomingEvent {
@@ -92,4 +88,14 @@ export interface ImagePrompt {
     scene_number: string;
     tags: string[];
   };
+}
+
+export type ContentTypeFilter = 'all' | 'photo' | 'video' | 'vector' | 'illustration';
+
+export interface ScanConfig {
+  minDownloads: number;
+  yearFrom: number | null;
+  yearTo: number | null;
+  aiOnly: boolean;
+  contentType: ContentTypeFilter;
 }

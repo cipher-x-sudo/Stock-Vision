@@ -1,4 +1,4 @@
-import { StockInsight } from "../types";
+import { StockInsight, ContentTypeFilter } from "../types";
 
 const PROXY_BASE = "https://api.allorigins.win/get?url=";
 
@@ -43,10 +43,12 @@ function mapImages(data: any): StockInsight[] {
 export const searchTrackAdobe = async (
   query: string,
   page: number = 1,
-  aiOnly: boolean = false
+  aiOnly: boolean = false,
+  contentType: ContentTypeFilter = 'all'
 ): Promise<{ images: StockInsight[]; usage: any }> => {
   const base = API_BASE ? API_BASE.replace(/\/$/, "") : "";
-  const backendUrl = `${base}/api/track-adobe?q=${encodeURIComponent(query)}&page=${page}&ai_only=${aiOnly ? "1" : "0"}`;
+  let backendUrl = `${base}/api/track-adobe?q=${encodeURIComponent(query)}&page=${page}&ai_only=${aiOnly ? "1" : "0"}`;
+  if (contentType && contentType !== 'all') backendUrl += `&content_type=${contentType}`;
 
   try {
     const response = await fetch(backendUrl);
@@ -64,6 +66,7 @@ export const searchTrackAdobe = async (
   const encodedQuery = encodeURIComponent(query);
   let targetUrl = `https://trackadobestock.com/search?q=${encodedQuery}`;
   if (aiOnly) targetUrl += "&generative_ai=only";
+  if (contentType && contentType !== 'all') targetUrl += `&content_type=${contentType}`;
   if (page > 1) targetUrl += `&page=${page}`;
   targetUrl += "&_rsc=1gn38";
   const proxyUrl = PROXY_BASE + encodeURIComponent(targetUrl);
@@ -108,12 +111,13 @@ export const searchTrackAdobe = async (
 export const searchTrackAdobeMultiplePages = async (
   query: string,
   minPages: number = 3,
-  aiOnly: boolean = true
+  aiOnly: boolean = true,
+  contentType: ContentTypeFilter = 'all'
 ): Promise<{ images: StockInsight[]; usage: any }> => {
   const allImages: StockInsight[] = [];
   let usage: any = {};
   for (let page = 1; page <= minPages; page++) {
-    const result = await searchTrackAdobe(query, page, aiOnly);
+    const result = await searchTrackAdobe(query, page, aiOnly, contentType);
     allImages.push(...result.images);
     if (result.usage && Object.keys(result.usage).length) usage = result.usage;
     if (result.images.length === 0 && page > 1) break;
