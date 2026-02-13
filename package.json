@@ -4,13 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n server,app -c cyan,magenta \"npm run server\" \"vite\"",
     "split-valentines": "python scripts/split-prompts-into-jsons.py",
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
-    "prestart": "kill-port 3000 3001",
-    "start": "concurrently -n server,app -c cyan,magenta \"npm run server\" \"npm run dev\""
+    "start": "npm run build && npm run server"
   },
   "dependencies": {
     "@google/genai": "^1.40.0",

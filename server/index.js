@@ -6,6 +6,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 import { GoogleGenAI } from "@google/genai";
 
 const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -263,6 +265,15 @@ app.post("/api/upscale-image", async (req, res) => {
     console.error("Upscale error:", err.message || err);
     return res.status(500).json({ error: err.message || "Upscale failed" });
   }
+});
+
+// ── Serve Vite-built frontend in production ───────────────────
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.join(__dirname, "..", "dist");
+app.use(express.static(distPath));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(distPath, "index.html"));
 });
 
 app.listen(PORT, () => {
