@@ -603,7 +603,7 @@ Generate 20 distinct image prompts for Nano Banana Pro. Each prompt must be a si
       "Focus on detailed close-ups, textures, objects, and macro photography."
     ];
 
-    const batches = 1;
+    const batches = 5;
     for (let b = 0; b < batches; b++) {
       // Collect recent scenes to avoid repetition
       const recentScenes = allPrompts.map(p => p.scene).slice(-40).join(" | ");
