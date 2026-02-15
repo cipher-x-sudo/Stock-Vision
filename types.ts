@@ -98,4 +98,6 @@ export interface ScanConfig {
   yearTo: number | null;
   aiOnly: boolean;
   contentType: ContentTypeFilter;
+  startPage?: number;
+  endPage?: number;
 }

@@ -106,9 +106,15 @@ const App: React.FC = () => {
           console.warn("Market proxy skipped, falling back to grounding.");
         }
       } else {
-        setStatus("Market Check: Querying TrackAdobe (AI assets, 3+ pages)...");
+        setStatus(`Market Check: Querying TrackAdobe (Pages ${config?.startPage || 1}-${config?.endPage || 3})...`);
         try {
-          const trackResult = await searchTrackAdobeMultiplePages(searchQuery, 3, aiOnly, contentType);
+          const trackResult = await searchTrackAdobeMultiplePages(
+            searchQuery,
+            config?.startPage || 1,
+            config?.endPage || 3,
+            aiOnly,
+            contentType
+          );
           images = trackResult.images;
           images = images.filter((img) => withDownloads(img.downloads) >= minDl);
           images = filterByYear(images);

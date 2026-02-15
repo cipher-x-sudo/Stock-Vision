@@ -25,6 +25,8 @@ const DEFAULT_CONFIG: ScanConfig = {
     yearTo: null,
     aiOnly: true,
     contentType: 'all',
+    startPage: 1,
+    endPage: 3,
 };
 
 const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm, onCancel }) => {
@@ -75,8 +77,8 @@ const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm,
                                     key={ct.value}
                                     onClick={() => setConfig((c) => ({ ...c, contentType: ct.value }))}
                                     className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all border ${config.contentType === ct.value
-                                            ? 'bg-sky-500/20 border-sky-500/60 text-sky-300 shadow-lg shadow-sky-500/10'
-                                            : 'bg-slate-800/60 border-white/5 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                                        ? 'bg-sky-500/20 border-sky-500/60 text-sky-300 shadow-lg shadow-sky-500/10'
+                                        : 'bg-slate-800/60 border-white/5 text-slate-400 hover:border-white/20 hover:text-slate-200'
                                         }`}
                                 >
                                     <i className={`fa-solid ${ct.icon} text-[11px]`}></i>
@@ -84,6 +86,35 @@ const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm,
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Page Range */}
+                    <div>
+                        <label className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3 block">Pages to Scan</label>
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center bg-slate-800/60 border border-white/10 rounded-xl px-4 py-3 gap-3">
+                                <span className="text-slate-500 text-xs font-bold uppercase">From</span>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    value={config.startPage || 1}
+                                    onChange={(e) => setConfig((c) => ({ ...c, startPage: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                    className="w-12 bg-transparent text-white text-sm font-black outline-none text-center"
+                                />
+                            </div>
+                            <span className="text-slate-500 text-xs font-bold">to</span>
+                            <div className="flex items-center bg-slate-800/60 border border-white/10 rounded-xl px-4 py-3 gap-3">
+                                <span className="text-slate-500 text-xs font-bold uppercase">Page</span>
+                                <input
+                                    type="number"
+                                    min={config.startPage || 1}
+                                    value={config.endPage || 1}
+                                    onChange={(e) => setConfig((c) => ({ ...c, endPage: Math.max(config.startPage || 1, parseInt(e.target.value) || 1) }))}
+                                    className="w-12 bg-transparent text-white text-sm font-black outline-none text-center"
+                                />
+                            </div>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-2 font-medium">Adobe Stock pagination (approx. 100 images per page)</p>
                     </div>
 
                     {/* Min Downloads */}

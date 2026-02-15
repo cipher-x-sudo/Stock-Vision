@@ -110,17 +110,19 @@ export const searchTrackAdobe = async (
  */
 export const searchTrackAdobeMultiplePages = async (
   query: string,
-  minPages: number = 3,
+  startPage: number = 1,
+  endPage: number = 3,
   aiOnly: boolean = true,
   contentType: ContentTypeFilter = 'all'
 ): Promise<{ images: StockInsight[]; usage: any }> => {
   const allImages: StockInsight[] = [];
   let usage: any = {};
-  for (let page = 1; page <= minPages; page++) {
+  for (let page = startPage; page <= endPage; page++) {
     const result = await searchTrackAdobe(query, page, aiOnly, contentType);
     allImages.push(...result.images);
     if (result.usage && Object.keys(result.usage).length) usage = result.usage;
-    if (result.images.length === 0 && page > 1) break;
+    // Break if no results found, unless it's just a gap (though usually empty means end of results)
+    if (result.images.length === 0) break;
   }
   return { images: allImages, usage };
 };
