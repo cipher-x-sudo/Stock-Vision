@@ -322,7 +322,9 @@ app.post("/api/generate-keywords", async (req, res) => {
         responseSchema: { type: "ARRAY", items: { type: "STRING" } }
       }
     });
-    const keywords = JSON.parse(response.text || "[]");
+    let rawText = response.text || "[]";
+    rawText = rawText.replace(/```json\n?|\n?```/g, "").trim();
+    const keywords = JSON.parse(rawText);
     res.json({ keywords });
   } catch (err) {
     console.error("Generate keywords error:", err.message || err);
@@ -420,7 +422,9 @@ Be data-driven. Reference actual download counts and patterns from the data. Res
       }
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    let rawText = response.text || "{}";
+    rawText = rawText.replace(/```json\n?|\n?```/g, "").trim();
+    const parsed = JSON.parse(rawText);
     const sources = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || []);
     res.json({ ...parsed, insights: rawData || [], sources });
   } catch (err) {
@@ -467,7 +471,9 @@ app.get("/api/suggested-events", async (req, res) => {
         }
       }
     });
-    const events = JSON.parse(response.text || "[]");
+    let rawText = response.text || "[]";
+    rawText = rawText.replace(/```json\n?|\n?```/g, "").trim();
+    const events = JSON.parse(rawText);
     res.json({ events });
   } catch (err) {
     console.error("Suggested events error:", err.message || err);
@@ -597,7 +603,7 @@ Generate 20 distinct image prompts for Nano Banana Pro. Each prompt must be a si
       "Focus on detailed close-ups, textures, objects, and macro photography."
     ];
 
-    const batches = 4;
+    const batches = 1;
     for (let b = 0; b < batches; b++) {
       // Collect recent scenes to avoid repetition
       const recentScenes = allPrompts.map(p => p.scene).slice(-40).join(" | ");
@@ -627,7 +633,48 @@ Generate 20 distinct image prompts for Nano Banana Pro. Each prompt must be a si
         }
       });
 
-      const parsed = JSON.parse(response.text || "[]");
+      let rawText;
+      if (typeof response.text === 'function') {
+        rawText = response.text();
+      } else if (typeof response.text === 'string') {
+        rawText = response.text;
+      } else if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts && response.candidates[0].content.parts[0].text) {
+        rawText = response.candidates[0].content.parts[0].text;
+      } else {
+        rawText = "[]";
+      }
+
+      console.log(`Batch ${b + 1} rawText type:`, typeof rawText);
+      console.log(`Batch ${b + 1} rawText preview:`, rawText.substring(0, 100));
+
+      // Robust cleanup: remove markdown code blocks
+      if (typeof rawText === 'string') {
+        rawText = rawText.replace(/```(?:json)?|```/g, "").trim();
+      } else {
+        rawText = "[]";
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch (e) {
+        console.error("Failed to parse prompt JSON. Cleaning failed.");
+        console.error("Raw text was:", rawText.slice(0, 500));
+
+        // Fallback: try to find the array content
+        const start = rawText.indexOf('[');
+        const end = rawText.lastIndexOf(']');
+        if (start !== -1 && end !== -1) {
+          try {
+            parsed = JSON.parse(rawText.substring(start, end + 1));
+          } catch (e2) {
+            console.error("Fallback parsing failed:", e2.message);
+            parsed = [];
+          }
+        } else {
+          parsed = [];
+        }
+      }
       if (Array.isArray(parsed)) {
         for (const p of parsed) {
           // Simple deduplication based on scene start
