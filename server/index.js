@@ -612,7 +612,9 @@ Generate 20 distinct image prompts for Nano Banana Pro. Each prompt must be a si
             STYLE DIRECTIVE: ${batchDirectives[b] || "Ensure maximum variety."}
             ${avoidance}
             
-            Output ONLY a JSON array of 20 image prompt objects.`
+            IMPORTANT: You MUST return a JSON array where each object EXACTLY matches the provided schema.
+            Required keys per object: scene, style, constraints, shot (composition, resolution, lens), lighting (primary, secondary, accents), color_palette (background, ink_primary, ink_secondary, text_primary), visual_rules, metadata.
+            Do NOT simplify or flatten the structure.`
           }]
         },
         generationConfig: {
