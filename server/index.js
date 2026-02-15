@@ -623,8 +623,8 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
             Do NOT simplify or flatten the structure.`
           }]
         },
-        generationConfig: {
-          temperature: 0.85, // Higher creativity to avoid repetition
+        config: {
+          temperature: 0.85,
           responseMimeType: "application/json",
           responseSchema: {
             type: "ARRAY",
@@ -633,48 +633,7 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
         }
       });
 
-      let rawText;
-      if (typeof response.text === 'function') {
-        rawText = response.text();
-      } else if (typeof response.text === 'string') {
-        rawText = response.text;
-      } else if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts && response.candidates[0].content.parts[0].text) {
-        rawText = response.candidates[0].content.parts[0].text;
-      } else {
-        rawText = "[]";
-      }
-
-      console.log(`Batch ${b + 1} rawText type:`, typeof rawText);
-      console.log(`Batch ${b + 1} rawText preview:`, rawText.substring(0, 100));
-
-      // Robust cleanup: remove markdown code blocks
-      if (typeof rawText === 'string') {
-        rawText = rawText.replace(/```(?:json)?|```/g, "").trim();
-      } else {
-        rawText = "[]";
-      }
-
-      let parsed;
-      try {
-        parsed = JSON.parse(rawText);
-      } catch (e) {
-        console.error("Failed to parse prompt JSON. Cleaning failed.");
-        console.error("Raw text was:", rawText.slice(0, 500));
-
-        // Fallback: try to find the array content
-        const start = rawText.indexOf('[');
-        const end = rawText.lastIndexOf(']');
-        if (start !== -1 && end !== -1) {
-          try {
-            parsed = JSON.parse(rawText.substring(start, end + 1));
-          } catch (e2) {
-            console.error("Fallback parsing failed:", e2.message);
-            parsed = [];
-          }
-        } else {
-          parsed = [];
-        }
-      }
+      const parsed = JSON.parse(response.text || "[]");
       if (Array.isArray(parsed)) {
         for (const p of parsed) {
           // Simple deduplication based on scene start
