@@ -590,7 +590,7 @@ Event: ${eventName}
 Top sellers: ${(brief.bestSellers || []).join(", ")}
 Shot ideas (Image only):\n${shotListText}
 
-Generate 20 distinct image prompts for Nano Banana Pro. Each prompt must be a single image (no video). Vary scene, style, composition, lighting, and color.`;
+Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a single image (no video). Vary scene, style, composition, lighting, and color.`;
 
     const allPrompts = [];
     const seenScenes = new Set();
@@ -603,7 +603,7 @@ Generate 20 distinct image prompts for Nano Banana Pro. Each prompt must be a si
       "Focus on detailed close-ups, textures, objects, and macro photography."
     ];
 
-    const batches = 5;
+    const batches = 4;
     for (let b = 0; b < batches; b++) {
       // Collect recent scenes to avoid repetition
       const recentScenes = allPrompts.map(p => p.scene).slice(-40).join(" | ");
