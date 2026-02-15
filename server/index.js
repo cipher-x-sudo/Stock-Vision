@@ -528,7 +528,8 @@ const IMAGE_PROMPT_SCHEMA = {
         tags: { type: "ARRAY", items: { type: "STRING" } }
       },
       required: ["series", "task", "scene_number", "tags"]
-    }
+    },
+    unique_id: { type: "STRING" } // Helper for deduplication
   },
   required: ["scene", "style", "constraints", "shot", "lighting", "color_palette", "visual_rules", "metadata"]
 };
@@ -577,24 +578,45 @@ app.post("/api/generate-prompts", async (req, res) => {
     const shotListText = imageItems.length > 0
       ? imageItems.map((s) => `- ${s.idea}: ${s.description}`).join("\n")
       : (brief.bestSellers || []).slice(0, 10).join(", ");
+
     const promptIntro = `
 Event: ${eventName}
 Top sellers: ${(brief.bestSellers || []).join(", ")}
 Shot ideas (Image only):\n${shotListText}
 
-Generate exactly 25 distinct image prompts for Nano Banana Pro. Each prompt must be a single image (no video). Vary scene, style, composition, lighting, and color. Return a JSON array of 25 objects matching this schema.`;
+Generate 20 distinct image prompts for Nano Banana Pro. Each prompt must be a single image (no video). Vary scene, style, composition, lighting, and color.`;
 
     const allPrompts = [];
+    const seenScenes = new Set();
+
+    // Diversity strategies for each batch
+    const batchDirectives = [
+      "Focus on commercial, high-value stock photography. Clean, bright, professional.",
+      "Focus on creative, artistic, and abstract interpretations. Unique angles and lighting.",
+      "Focus on authentic lifestyle, candid moments, and emotional connection.",
+      "Focus on detailed close-ups, textures, objects, and macro photography."
+    ];
+
     const batches = 4;
     for (let b = 0; b < batches; b++) {
+      // Collect recent scenes to avoid repetition
+      const recentScenes = allPrompts.map(p => p.scene).slice(-40).join(" | ");
+      const avoidance = recentScenes ? `\n\nDO NOT REPEAT these exact concepts: ${recentScenes}` : "";
+
       const response = await generateWithFallback({
         model: "gemini-3-flash-preview",
         contents: {
           parts: [{
-            text: `${promptIntro} Batch ${b + 1}/${batches}. Output ONLY a JSON array of 25 image prompt objects, no other text.`
+            text: `${promptIntro}
+            Batch ${b + 1}/${batches}.
+            STYLE DIRECTIVE: ${batchDirectives[b] || "Ensure maximum variety."}
+            ${avoidance}
+            
+            Output ONLY a JSON array of 20 image prompt objects.`
           }]
         },
-        config: {
+        generationConfig: {
+          temperature: 0.85, // Higher creativity to avoid repetition
           responseMimeType: "application/json",
           responseSchema: {
             type: "ARRAY",
@@ -602,13 +624,20 @@ Generate exactly 25 distinct image prompts for Nano Banana Pro. Each prompt must
           }
         }
       });
+
       const parsed = JSON.parse(response.text || "[]");
       if (Array.isArray(parsed)) {
         for (const p of parsed) {
-          allPrompts.push(normalizeImagePrompt(p));
+          // Simple deduplication based on scene start
+          const sceneKey = (p.scene || "").substring(0, 20).toLowerCase();
+          if (!seenScenes.has(sceneKey)) {
+            seenScenes.add(sceneKey);
+            allPrompts.push(normalizeImagePrompt(p));
+          }
         }
       }
     }
+
     res.json({ prompts: allPrompts });
   } catch (err) {
     console.error("Generate prompts error:", err.message || err);
