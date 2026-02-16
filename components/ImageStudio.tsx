@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import type { ImagePrompt } from '../types';
-import { generateImageFromPrompt, upscaleImage } from '../services/imageGenService';
+import { generateImageFromPrompt, upscaleImage, generateVideoFromImage } from '../services/imageGenService';
 import type { GenerationSettings } from '../services/imageGenService';
 
 const ASPECT_RATIOS = [
@@ -30,6 +30,9 @@ interface GeneratedImage {
     status: 'idle' | 'generating' | 'done' | 'error';
     upscaleStatus: 'idle' | 'upscaling' | 'done' | 'error';
     error?: string;
+    videoUrl?: string;
+    videoStatus: 'idle' | 'planning' | 'generating' | 'done' | 'error';
+    videoPlan?: any;
 }
 
 interface ImageStudioProps {
@@ -69,14 +72,14 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
             visual_rules: { prohibited_elements: [], grain: '', sharpen: '' },
             metadata: { series: '', task: '', scene_number: '', tags: [] },
         };
-        setItems(prev => [...prev, { prompt: newPrompt, dataUrl: null, upscaledUrl: null, status: 'idle', upscaleStatus: 'idle' }]);
+        setItems(prev => [...prev, { prompt: newPrompt, dataUrl: null, upscaledUrl: null, status: 'idle', upscaleStatus: 'idle', videoStatus: 'idle' }]);
         setManualPrompt('');
     }, [manualPrompt]);
 
     // Import from current scan session
     const importFromSession = useCallback(() => {
         if (sessionPrompts.length === 0) return;
-        setItems(sessionPrompts.map(p => ({ prompt: p, dataUrl: null, upscaledUrl: null, status: 'idle', upscaleStatus: 'idle' })));
+        setItems(sessionPrompts.map(p => ({ prompt: p, dataUrl: null, upscaledUrl: null, status: 'idle', upscaleStatus: 'idle', videoStatus: 'idle' })));
     }, [sessionPrompts]);
 
     // Import from JSONL file
@@ -94,7 +97,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                 } catch { /* skip invalid lines */ }
             }
             if (prompts.length > 0) {
-                setItems(prompts.map(p => ({ prompt: p, dataUrl: null, upscaledUrl: null, status: 'idle', upscaleStatus: 'idle' })));
+                setItems(prompts.map(p => ({ prompt: p, dataUrl: null, upscaledUrl: null, status: 'idle', upscaleStatus: 'idle', videoStatus: 'idle' })));
             }
         };
         reader.readAsText(file);
@@ -205,6 +208,30 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
         }
 
         setUpscaleBatchRunning(false);
+    }, [items]);
+
+    // Generate Video from Image
+    const generateVideo = useCallback(async (index: number, fast: boolean) => {
+        const item = items[index];
+        const src = item.upscaledUrl || item.dataUrl;
+        if (!src) return;
+
+        setItems(prev => prev.map((it, i) =>
+            i === index ? { ...it, videoStatus: 'planning', error: undefined } : it
+        ));
+
+        try {
+            // Note: We use the item's prompt scene as the base, but the backend will generate a new plan
+            const result = await generateVideoFromImage(src, item.prompt.scene, fast);
+
+            setItems(prev => prev.map((it, i) =>
+                i === index ? { ...it, videoUrl: result.videoUrl, videoPlan: result.plan, videoStatus: 'done' } : it
+            ));
+        } catch (err: any) {
+            setItems(prev => prev.map((it, i) =>
+                i === index ? { ...it, videoStatus: 'error', error: err.message } : it
+            ));
+        }
     }, [items]);
 
     const stopBatch = useCallback(() => {
@@ -491,6 +518,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                                     <th className="px-4 py-4">Style</th>
                                     <th className="px-4 py-4 w-28">Status</th>
                                     <th className="px-4 py-4 w-24">4K</th>
+                                    <th className="px-4 py-4 w-24">Video</th>
                                     <th className="px-4 py-4 w-44">Action</th>
                                 </tr>
                             </thead>
@@ -564,7 +592,14 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                                             )}
                                         </td>
                                         <td className="px-4 py-3">
-                                            <div className="flex gap-2">
+                                            {item.videoStatus === 'idle' && <span className="text-slate-600 text-xs font-bold uppercase">—</span>}
+                                            {item.videoStatus === 'planning' && <span className="text-sky-400 text-xs font-bold uppercase"><i className="fa-solid fa-brain fa-spin mr-1"></i> Plan</span>}
+                                            {item.videoStatus === 'generating' && <span className="text-sky-400 text-xs font-bold uppercase"><i className="fa-solid fa-video fa-spin mr-1"></i> Gen</span>}
+                                            {item.videoStatus === 'done' && <span className="text-pink-400 text-xs font-bold uppercase"><i className="fa-solid fa-film mr-1"></i> Ready</span>}
+                                            {item.videoStatus === 'error' && <span className="text-red-400 text-xs font-bold uppercase"><i className="fa-solid fa-xmark mr-1"></i> Fail</span>}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex gap-2 flex-wrap">
                                                 {item.status !== 'done' && item.status !== 'generating' && (
                                                     <button
                                                         onClick={() => generateOne(i)}
@@ -583,6 +618,40 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                                                         4K
                                                     </button>
                                                 )}
+                                                {(item.dataUrl || item.upscaledUrl) && item.videoStatus === 'idle' && (
+                                                    <div className="flex gap-1">
+                                                        <button
+                                                            onClick={() => generateVideo(i, false)}
+                                                            className="px-3 py-1.5 bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500/20 rounded-lg text-sky-400 text-xs font-bold uppercase transition-all"
+                                                            title="Generate Video (Veo 3.1)"
+                                                        >
+                                                            Video
+                                                        </button>
+                                                        <button
+                                                            onClick={() => generateVideo(i, true)}
+                                                            className="px-2 py-1.5 bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500/20 rounded-lg text-sky-400 text-xs font-bold uppercase transition-all"
+                                                            title="Fast Mode"
+                                                        >
+                                                            <i className="fa-solid fa-bolt"></i>
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                {item.videoStatus === 'planning' && (
+                                                    <span className="text-sky-400 text-[10px] font-bold uppercase animate-pulse self-center">Planning...</span>
+                                                )}
+                                                {item.videoStatus === 'generating' && (
+                                                    <span className="text-sky-400 text-[10px] font-bold uppercase animate-pulse self-center">Rendering...</span>
+                                                )}
+                                                {item.videoUrl && (
+                                                    <a
+                                                        href={item.videoUrl}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="px-3 py-1.5 bg-pink-500/10 border border-pink-500/30 hover:bg-pink-500/20 rounded-lg text-pink-400 text-xs font-bold uppercase transition-all"
+                                                    >
+                                                        <i className="fa-solid fa-play mr-1"></i> Play
+                                                    </a>
+                                                )}
                                                 {(item.dataUrl || item.upscaledUrl) && (
                                                     <button
                                                         onClick={() => downloadImage(item, i)}
@@ -599,42 +668,47 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                         </table>
                     </div>
                 </div>
-            )}
+            )
+            }
 
             {/* Empty State */}
-            {items.length === 0 && (
-                <div className="text-center py-32">
-                    <div className="w-24 h-24 mx-auto mb-8 rounded-3xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
-                        <i className="fa-solid fa-wand-magic-sparkles text-4xl text-violet-400"></i>
+            {
+                items.length === 0 && (
+                    <div className="text-center py-32">
+                        <div className="w-24 h-24 mx-auto mb-8 rounded-3xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
+                            <i className="fa-solid fa-wand-magic-sparkles text-4xl text-violet-400"></i>
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-400 uppercase tracking-wider mb-3">No Prompts Loaded</h3>
+                        <p className="text-slate-600 text-sm max-w-md mx-auto">
+                            Import prompts from a scan session or load a JSONL file to start generating images.
+                        </p>
                     </div>
-                    <h3 className="text-2xl font-black text-slate-400 uppercase tracking-wider mb-3">No Prompts Loaded</h3>
-                    <p className="text-slate-600 text-sm max-w-md mx-auto">
-                        Import prompts from a scan session or load a JSONL file to start generating images.
-                    </p>
-                </div>
-            )}
+                )
+            }
 
             {/* Zoom Modal */}
-            {zoomedImage && (
-                <div
-                    className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-8 cursor-pointer"
-                    onClick={() => setZoomedImage(null)}
-                >
-                    <img
-                        src={zoomedImage}
-                        alt="Zoomed"
-                        className="max-w-full max-h-full rounded-2xl shadow-2xl"
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                    <button
+            {
+                zoomedImage && (
+                    <div
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-8 cursor-pointer"
                         onClick={() => setZoomedImage(null)}
-                        className="absolute top-6 right-6 w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all"
                     >
-                        <i className="fa-solid fa-xmark"></i>
-                    </button>
-                </div>
-            )}
-        </div>
+                        <img
+                            src={zoomedImage}
+                            alt="Zoomed"
+                            className="max-w-full max-h-full rounded-2xl shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                        <button
+                            onClick={() => setZoomedImage(null)}
+                            className="absolute top-6 right-6 w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all"
+                        >
+                            <i className="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                )
+            }
+        </div >
     );
 };
 

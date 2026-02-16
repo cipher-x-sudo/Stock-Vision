@@ -47,3 +47,22 @@ export const upscaleImage = async (imageDataUrl: string): Promise<string> => {
     const data = await res.json();
     return data.image;
 };
+
+export const generateVideoFromImage = async (
+    imageDataUrl: string,
+    prompt?: string,
+    isFast: boolean = false
+): Promise<{ videoUrl: string; plan: any; prompt: string }> => {
+    const res = await fetch(`${API_BASE}/api/generate-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: imageDataUrl, prompt, fast: isFast }),
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    return await res.json();
+};

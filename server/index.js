@@ -21,7 +21,15 @@ const PORT = process.env.PORT || 3001;
 const app = express();
 
 app.use(cors({ origin: true }));
+app.use(cors({ origin: true }));
 app.use(express.json({ limit: "50mb" }));
+app.use("/api/videos", express.static(path.join(__dirname, "generated_videos")));
+
+// Ensure generated_videos directory exists
+const VIDEOS_DIR = path.join(__dirname, "generated_videos");
+if (!fs.existsSync(VIDEOS_DIR)) {
+  fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+}
 
 function getCookieHeader() {
   if (process.env.TRACK_ADOBE_COOKIES) {
@@ -650,6 +658,128 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
   } catch (err) {
     console.error("Generate prompts error:", err.message || err);
     res.status(500).json({ error: err.message || "Prompt generation failed" });
+  }
+});
+
+// ── Generate Video (Director Mode + Veo) ──────────────────────
+const DIRECTOR_TEMPLATE = JSON.parse(fs.readFileSync(path.join(__dirname, "director_template.json"), "utf8"));
+
+app.post("/api/generate-video", async (req, res) => {
+  try {
+    const { image, prompt, fast } = req.body;
+    if (!image) return res.status(400).json({ error: "Missing image data" });
+
+    // Extract base64
+    const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!match) return res.status(400).json({ error: "Invalid image data URL" });
+    const [, mimeType, base64Data] = match;
+
+    // 1. Director Mode: Generate Plan
+    console.log("Step 1: Director Mode - Planning video...");
+    const directorPrompt = `
+      You are an expert Commercial Video Director. Analyze this image and create a structured plan to animate it into a high-quality stock video.
+      
+      User Goal: ${prompt || "Create a cinematic stock video based on this image."}
+      
+      Constraints:
+      - NO text overlays (keep overlay_style "none").
+      - NO complex transitions.
+      - Focus on camera motion, lighting changes, and subtle subject movement.
+      - Keep it realistic and high fidelity.
+      
+      Output MUST be a valid JSON object matching this exact structure:
+      ${JSON.stringify(DIRECTOR_TEMPLATE, null, 2)}
+    `;
+
+    const planResponse = await genai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: [
+        {
+          parts: [
+            { inlineData: { mimeType, data: base64Data } },
+            { text: directorPrompt }
+          ]
+        }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.7
+      }
+    });
+
+    let plan = {};
+    try {
+      plan = JSON.parse(planResponse.response.text());
+    } catch (e) {
+      console.error("Failed to parse Director Plan JSON", e);
+      // Fallback or proceed with minimal plan if needed, but best to error or use default
+    }
+
+    // 2. Transmute Plan to Veo Prompt
+    // Veo takes a natural language prompt, so we synthesize the relevant parts of the plan.
+    console.log("Step 2: Synthesizing Veo Prompt...");
+    const veoPromptParts = [];
+    if (plan.scene) veoPromptParts.push(plan.scene);
+    if (plan.shot?.camera_motion) veoPromptParts.push(`Camera motion: ${plan.shot.camera_motion}`);
+    if (plan.shot?.composition) veoPromptParts.push(`Composition: ${plan.shot.composition}`);
+    if (plan.lighting?.primary) veoPromptParts.push(`Lighting: ${plan.lighting.primary}`);
+    if (plan.style) veoPromptParts.push(`Style: ${plan.style}`);
+    const veoPrompt = veoPromptParts.join(". ") + ". Cinematic, 4k, stock footage style.";
+
+    // 3. Generate Video
+    const model = fast ? "veo-3.1-fast-generate-preview" : "veo-3.1-generate-preview"; // Or check available models
+    console.log(`Step 3: Generating Video with ${model}...`);
+
+    // Note: generateVideos returns an Operation
+    const operation = await genai.models.generateVideos({
+      model: model,
+      prompt: veoPrompt,
+      image: {
+        imageBytes: base64Data,
+        mimeType: mimeType
+      }
+    });
+
+    // 4. Poll for completion
+    let opState = operation;
+    while (!opState.done) {
+      console.log("Waiting for video generation...");
+      await new Promise(r => setTimeout(r, 5000)); // Wait 5s
+      opState = await genai.operations.getVideosOperation({ operation: opState });
+    }
+
+    if (opState.error) {
+      throw new Error(`Veo generation failed: ${opState.error.message}`);
+    }
+
+    // 5. Download and Save
+    const generatedVideo = opState.response.generatedVideos[0];
+    if (!generatedVideo) throw new Error("No video returned");
+
+    // We need to fetch the actual bytes. The SDK documentation says `client.files.download(file=video.video)`.
+    // In Node SDK, we might need to use the `uri` or `name` to download.
+    // The previous `read_browser_page` output for Python showed `client.files.download(file=video.video)`.
+    // For JS/TS SDK: `ai.files.download({ file: operation.response.generatedVideos[0].video })`
+    // Wait, the documentation snippet for JS says: `ai.files.download({ file: ..., downloadPath: ... })`.
+    // But we are in Node.js server, we want the bytes to save ourselves or just stream it?
+    // Let's try to use the `download` method if available, or fetch via URI if exposed.
+    // Actually, looking at `genai` instance `files` property.
+
+    const videoId = `veo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.mp4`;
+    const outputPath = path.join(VIDEOS_DIR, videoId);
+
+    // Using the SDK's download helper which presumably handles authed fetch
+    await genai.files.download({
+      file: generatedVideo.video,
+      downloadPath: outputPath
+    });
+
+    const videoUrl = `/api/videos/${videoId}`;
+    res.json({ videoUrl, plan, prompt: veoPrompt });
+
+  } catch (err) {
+    console.error("Video generation error:", err);
+    res.status(500).json({ error: err.message || "Video generation failed" });
   }
 });
 
