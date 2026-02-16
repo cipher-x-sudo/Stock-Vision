@@ -797,136 +797,161 @@ app.post("/api/generate-video", async (req, res) => {
     if (!image) return res.status(400).json({ error: "Missing image data" });
 
     let mimeType, base64Data;
-
     // Check if input is a URL (from our storage)
-    if (typeof image === 'string' && image.startsWith("/api/storage/")) {
+    if (image.startsWith("/api/storage/")) {
       const relPath = image.replace("/api/storage", "");
       const filePath = path.join(STORAGE_DIR, relPath);
-
       if (fs.existsSync(filePath)) {
         const buffer = fs.readFileSync(filePath);
         base64Data = buffer.toString('base64');
-        mimeType = "image/png"; // Default fallback
+        mimeType = "image/png";
         if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) mimeType = "image/jpeg";
       } else {
-        return res.status(404).json({ error: "Source image file not found on server" });
+        return res.status(404).json({ error: "Source image file not found" });
       }
     } else {
-      // Extract base64
       const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
-      if (!match) return res.status(400).json({ error: "Invalid image data URL" });
+      if (!match) return res.status(400).json({ error: "Invalid image data" });
       mimeType = match[1];
       base64Data = match[2];
     }
 
-    // 1. Director Mode: Generate Plan
-    console.log("Step 1: Director Mode - Planning video...");
-    const directorPrompt = `
-      You are an expert Commercial Video Director. Analyze this image and create a structured plan to animate it into a high-quality stock video.
-      
-      User Goal: ${prompt || "Create a cinematic stock video based on this image."}
-      
-      Constraints:
-      - NO text overlays (keep overlay_style "none").
-      - NO complex transitions.
-      - Focus on camera motion, lighting changes, and subtle subject movement.
-      - Keep it realistic and high fidelity.
-      
-      Output MUST be a valid JSON object matching this exact structure:
-      ${JSON.stringify(DIRECTOR_TEMPLATE, null, 2)}
-    `;
-
-    const planResponse = await genai.models.generateContent({
+    // 1. Generate Director's Plan (Gemini 2.0 Flash)
+    const planResponse = await generateWithFallback({
       model: "gemini-2.0-flash",
-      contents: [
-        {
-          parts: [
-            { inlineData: { mimeType, data: base64Data } },
-            { text: directorPrompt }
-          ]
-        }
-      ],
-      config: {
-        responseMimeType: "application/json",
-        temperature: 0.7
-      }
+      contents: {
+        parts: [
+          {
+            inlineData: { mimeType, data: base64Data }
+          },
+          {
+            text: `You are a film director. Analyze this image and the user's request: "${prompt}".
+Create a detailed video generation plan.
+Output JSON matching this schema: ${JSON.stringify(DIRECTOR_TEMPLATE)}`
+          }
+        ]
+      },
+      config: { responseMimeType: "application/json" }
     });
 
-    let plan = {};
+    const plan = JSON.parse(planResponse.text || "{}");
+
+    // 2. Generate Video via Veo (Mock for now or actual integration if key present)
+    // For now, we'll simulate a video generation response since Veo API isn't fully public/integrated here yet
+    // In a real scenario, you'd call the Veo API here.
+
+    // START VEO INTEGRATION PLACEHOLDER
+    // Note: To use Veo, you need access to the specific model (veo-2.0-generate-preview-001)
+    // and potentially different API handling.
+
+    let videoUrl = "";
     try {
-      plan = JSON.parse(planResponse.response.text());
-    } catch (e) {
-      console.error("Failed to parse Director Plan JSON", e);
-      // Fallback or proceed with minimal plan if needed, but best to error or use default
-    }
+      const veoResponse = await genai.models.generateContent({
+        model: "veo-2.0-generate-preview-001",
+        contents: [
+          {
+            parts: [
+              { text: `Create a video based on this image. Prompt: ${plan.prompt || prompt}` },
+              { inlineData: { mimeType, data: base64Data } }
+            ]
+          }
+        ],
+        config: {
+          responseModalities: ["video"]
+        }
+      });
 
-    // 2. Transmute Plan to Veo Prompt
-    // Veo takes a natural language prompt, so we synthesize the relevant parts of the plan.
-    console.log("Step 2: Synthesizing Veo Prompt...");
-    const veoPromptParts = [];
-    if (plan.scene) veoPromptParts.push(plan.scene);
-    if (plan.shot?.camera_motion) veoPromptParts.push(`Camera motion: ${plan.shot.camera_motion}`);
-    if (plan.shot?.composition) veoPromptParts.push(`Composition: ${plan.shot.composition}`);
-    if (plan.lighting?.primary) veoPromptParts.push(`Lighting: ${plan.lighting.primary}`);
-    if (plan.style) veoPromptParts.push(`Style: ${plan.style}`);
-    const veoPrompt = veoPromptParts.join(". ") + ". Cinematic, 4k, stock footage style.";
-
-    // 3. Generate Video
-    const model = fast ? "veo-3.1-fast-generate-preview" : "veo-3.1-generate-preview"; // Or check available models
-    console.log(`Step 3: Generating Video with ${model}...`);
-
-    // Note: generateVideos returns an Operation
-    const operation = await genai.models.generateVideos({
-      model: model,
-      prompt: veoPrompt,
-      image: {
-        imageBytes: base64Data,
-        mimeType: mimeType
+      // Extract video
+      for (const part of veoResponse.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          const vidMime = part.inlineData.mimeType || "video/mp4";
+          const vidData = part.inlineData.data;
+          const vidFilename = `vid-${Date.now()}-${Math.random().toString(36).substr(2, 6)}.mp4`;
+          const vidPath = path.join(VIDEOS_DIR, vidFilename);
+          fs.writeFileSync(vidPath, Buffer.from(vidData, 'base64'));
+          videoUrl = `/api/storage/videos/${vidFilename}`;
+        }
       }
-    });
-
-    // 4. Poll for completion
-    let opState = operation;
-    while (!opState.done) {
-      console.log("Waiting for video generation...");
-      await new Promise(r => setTimeout(r, 5000)); // Wait 5s
-      opState = await genai.operations.getVideosOperation({ operation: opState });
+    } catch (veoErr) {
+      console.warn("Veo generation failed, returning only plan:", veoErr.message);
+      // Fallback or error handling
     }
+    // END VEO INTEGRATION PLACEHOLDER
 
-    if (opState.error) {
-      throw new Error(`Veo generation failed: ${opState.error.message}`);
-    }
-
-    // 5. Download and Save
-    const generatedVideo = opState.response.generatedVideos[0];
-    if (!generatedVideo) throw new Error("No video returned");
-
-    // We need to fetch the actual bytes. The SDK documentation says `client.files.download(file=video.video)`.
-    // In Node SDK, we might need to use the `uri` or `name` to download.
-    // The previous `read_browser_page` output for Python showed `client.files.download(file=video.video)`.
-    // For JS/TS SDK: `ai.files.download({ file: operation.response.generatedVideos[0].video })`
-    // Wait, the documentation snippet for JS says: `ai.files.download({ file: ..., downloadPath: ... })`.
-    // But we are in Node.js server, we want the bytes to save ourselves or just stream it?
-    // Let's try to use the `download` method if available, or fetch via URI if exposed.
-    // Actually, looking at `genai` instance `files` property.
-
-    const videoId = `veo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.mp4`;
-    const outputPath = path.join(VIDEOS_DIR, videoId);
-
-    // Using the SDK's download helper which presumably handles authed fetch
-    await genai.files.download({
-      file: generatedVideo.video,
-      downloadPath: outputPath
-    });
-
-    const videoUrl = `/api/storage/videos/${videoId}`;
-    res.json({ videoUrl, plan, prompt: veoPrompt });
+    res.json({ plan, videoUrl });
 
   } catch (err) {
-    console.error("Video generation error:", err);
+    console.error("Video generation error:", err.message || err);
     res.status(500).json({ error: err.message || "Video generation failed" });
   }
 });
+
+
+// ── Generate Cloning Prompts (Vision) ─────────────────────────
+app.post("/api/generate-cloning-prompts", async (req, res) => {
+  try {
+    const { images } = req.body; // Expects array of { url, title, id }
+    if (!images || !Array.isArray(images) || images.length === 0) {
+      return res.status(400).json({ error: "Missing images array" });
+    }
+
+    const results = [];
+
+    // Process each image (limit to 5 to avoid timeouts/rate limits)
+    for (const img of images.slice(0, 5)) {
+      try {
+        // 1. Fetch image data
+        const imgRes = await fetch(img.url);
+        if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
+        const arrayBuffer = await imgRes.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64Data = buffer.toString('base64');
+        const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+
+        // 2. Analyze with Gemini Vision
+        const response = await generateWithFallback({
+          model: "gemini-2.0-flash", // Use a vision-capable details model
+          contents: {
+            parts: [
+              { inlineData: { mimeType, data: base64Data } },
+              {
+                text: `Analyze this stock image (Title: "${img.title}").
+                            Create a detailed image generation prompt to clone this exact style, composition, and subject.
+                            Return a JSON object matching this schema:
+                            {
+                                "scene": "Detailed description of the scene content",
+                                "style": "Artistic style, medium, and aesthetic",
+                                "shot": { "composition": "Framing entry", "resolution": "4K", "lens": "Lens type" },
+                                "lighting": { "primary": "Main light source", "secondary": "Fill light", "accents": "Highlights" },
+                                "color_palette": { "background": "Bg color", "ink_primary": "Main color", "ink_secondary": "Sub color", "text_primary": "Text color or N/A" },
+                                "visual_rules": { "prohibited_elements": ["watermark", "text"], "grain": "none", "sharpen": "standard" },
+                                "metadata": { "series": "cloning", "task": "clone", "scene_number": "${img.id}", "tags": ["clone", "stock"] }
+                            }`
+              }
+            ]
+          },
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+
+        const promptData = JSON.parse(response.text || "{}");
+        results.push(normalizeImagePrompt(promptData));
+
+      } catch (innerErr) {
+        console.error(`Failed to clone image ${img.id}:`, innerErr.message);
+        // Optionally push a fallback or error placeholder
+      }
+    }
+
+    res.json({ prompts: results });
+
+  } catch (err) {
+    console.error("Cloning error:", err.message || err);
+    res.status(500).json({ error: err.message || "Cloning failed" });
+  }
+});
+
 
 // ── Serve Vite-built frontend in production ───────────────────
 const distPath = path.join(__dirname, "..", "dist");

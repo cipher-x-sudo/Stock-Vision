@@ -6,6 +6,7 @@ import { searchTrackAdobe, searchTrackAdobeMultiplePages } from './services/trac
 import TrendChart from './components/TrendChart';
 import ScanConfigModal from './components/ScanConfigModal';
 import ImageStudio from './components/ImageStudio';
+import CloningMode from './components/CloningMode';
 
 const App: React.FC = () => {
   const [events, setEvents] = useState<UpcomingEvent[]>([]);
@@ -21,7 +22,7 @@ const App: React.FC = () => {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pendingScanQuery, setPendingScanQuery] = useState('');
   const [pendingFromEvent, setPendingFromEvent] = useState(false);
-  const [activeTab, setActiveTab] = useState<'intelligence' | 'studio'>('intelligence');
+  const [activeTab, setActiveTab] = useState<'intelligence' | 'studio' | 'cloning'>('intelligence');
 
   const fetchEvents = useCallback(async () => {
     setInitialLoading(true);
@@ -151,6 +152,11 @@ const App: React.FC = () => {
     }
   }, [analysis]);
 
+  const handleCloningPrompts = useCallback((prompts: ImagePrompt[]) => {
+    setImagePrompts(prompts);
+    setActiveTab('studio');
+  }, []);
+
   const handleExportJSON = useCallback(() => {
     if (imagePrompts.length === 0) return;
     const slug = (analysis?.brief?.event ?? "event").replace(/\s+/g, "-").toLowerCase().replace(/[^a-z0-9-]/g, "");
@@ -211,6 +217,15 @@ const App: React.FC = () => {
             <i className="fa-solid fa-radar mr-2"></i> Intelligence
           </button>
           <button
+            onClick={() => setActiveTab('cloning')}
+            className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'cloning'
+              ? 'bg-pink-500 text-white shadow-lg shadow-pink-500/20'
+              : 'bg-[#161d2f] text-slate-400 hover:text-white border border-white/5'
+              }`}
+          >
+            <i className="fa-solid fa-dna mr-2"></i> Cloning
+          </button>
+          <button
             onClick={() => setActiveTab('studio')}
             className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'studio'
               ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/20'
@@ -226,8 +241,13 @@ const App: React.FC = () => {
 
         {activeTab === 'studio' ? (
           <ImageStudio sessionPrompts={imagePrompts} />
+        ) : activeTab === 'cloning' ? (
+          <React.Suspense fallback={<div className="text-center p-20 text-slate-500">Loading Cloning Module...</div>}>
+            <CloningMode onPromptsGenerated={handleCloningPrompts} />
+          </React.Suspense>
         ) : (
           <>
+
             {error && (
               <div className="mb-8 p-6 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0 animate-in fade-in zoom-in duration-300">
                 <div className="flex items-center space-x-4">
