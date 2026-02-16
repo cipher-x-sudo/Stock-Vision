@@ -25,11 +25,49 @@ app.use(cors({ origin: true }));
 app.use(express.json({ limit: "50mb" }));
 app.use("/api/videos", express.static(path.join(__dirname, "generated_videos")));
 
-// Ensure generated_videos directory exists
-const VIDEOS_DIR = path.join(__dirname, "generated_videos");
-if (!fs.existsSync(VIDEOS_DIR)) {
-  fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+// Configure Storage
+const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, "storage");
+const VIDEOS_DIR = path.join(STORAGE_DIR, "videos");
+const IMAGES_DIR = path.join(STORAGE_DIR, "images");
+const BATCHES_DIR = path.join(STORAGE_DIR, "batches");
+
+[VIDEOS_DIR, IMAGES_DIR, BATCHES_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
+
+// Serve storage statically
+app.use("/api/storage", express.static(STORAGE_DIR));
+
+// ── Cleanup Utility ───────────────────────────────────────────
+function cleanupOldFiles(dir, maxAgeMs) {
+  fs.readdir(dir, (err, files) => {
+    if (err) return console.error(`Cleanup read error for ${dir}:`, err);
+    const now = Date.now();
+    files.forEach(file => {
+      const filePath = path.join(dir, file);
+      fs.stat(filePath, (err, stats) => {
+        if (err) return;
+        if (now - stats.mtimeMs > maxAgeMs) {
+          fs.unlink(filePath, (err) => {
+            if (err) console.error(`Failed to delete old file ${file}:`, err);
+            else console.log(`Deleted old file: ${file}`);
+          });
+        }
+      });
+    });
+  });
 }
+
+// Run cleanup daily (7 days retention)
+const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+setInterval(() => {
+  [VIDEOS_DIR, IMAGES_DIR, BATCHES_DIR].forEach(dir => cleanupOldFiles(dir, RETENTION_MS));
+}, 24 * 60 * 60 * 1000);
+
+// Run once on startup
+[VIDEOS_DIR, IMAGES_DIR, BATCHES_DIR].forEach(dir => cleanupOldFiles(dir, RETENTION_MS));
 
 function getCookieHeader() {
   if (process.env.TRACK_ADOBE_COOKIES) {
@@ -173,6 +211,52 @@ app.get("/api/track-adobe", async (req, res) => {
   }
 });
 
+// ── History API ───────────────────────────────────────────────
+app.get("/api/history/batches", (req, res) => {
+  fs.readdir(BATCHES_DIR, (err, files) => {
+    if (err) return res.status(500).json({ error: "Failed to read history" });
+
+    // Sort by modification time (newest first)
+    const batches = files
+      .filter(f => f.endsWith(".json") && f.startsWith("batch-"))
+      .map(f => {
+        const filePath = path.join(BATCHES_DIR, f);
+        try {
+          const stats = fs.statSync(filePath);
+          // Try to get count from content without reading whole large file if possible, 
+          // or just read it since batches aren't huge.
+          const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          return {
+            filename: f,
+            date: stats.mtime.toISOString(),
+            count: Array.isArray(content) ? content.length : 0,
+            timestamp: stats.mtimeMs
+          };
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    res.json({ batches });
+  });
+});
+
+app.get("/api/history/batches/:filename", (req, res) => {
+  const filename = req.params.filename;
+  // Security check: ensure no path traversal
+  if (!filename.match(/^batch-[\w.-]+\.json$/)) {
+    return res.status(400).json({ error: "Invalid filename" });
+  }
+  const filePath = path.join(BATCHES_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Batch not found" });
+  }
+  res.sendFile(filePath);
+});
+
+
 // ── Image Generation (Nano Banana Pro) ────────────────────────
 app.post("/api/generate-image", async (req, res) => {
   try {
@@ -212,8 +296,17 @@ app.post("/api/generate-image", async (req, res) => {
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) {
         const mimeType = part.inlineData.mimeType || "image/png";
-        const dataUrl = `data:${mimeType};base64,${part.inlineData.data}`;
-        return res.json({ image: dataUrl });
+        const base64Data = part.inlineData.data;
+        const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+        // Save to storage
+        const filename = `img-${Date.now()}-${Math.random().toString(36).substr(2, 6)}.png`;
+        const filePath = path.join(IMAGES_DIR, filename);
+        fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+
+        const fileUrl = `/api/storage/images/${filename}`;
+
+        return res.json({ image: dataUrl, url: fileUrl });
       }
     }
 
@@ -232,12 +325,31 @@ app.post("/api/upscale-image", async (req, res) => {
       return res.status(400).json({ error: "Missing image data" });
     }
 
-    // Extract base64 data and mime type from data URL
-    const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
-    if (!match) {
-      return res.status(400).json({ error: "Invalid image data URL format" });
+    let mimeType, base64Data;
+
+    // Check if input is a URL (from our storage)
+    if (image.startsWith("/api/storage/")) {
+      // Resolve URL to local file path
+      const relPath = image.replace("/api/storage", "");
+      const filePath = path.join(STORAGE_DIR, relPath);
+
+      if (fs.existsSync(filePath)) {
+        const buffer = fs.readFileSync(filePath);
+        base64Data = buffer.toString('base64');
+        mimeType = "image/png"; // Assume PNG for now
+        if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) mimeType = "image/jpeg";
+      } else {
+        return res.status(404).json({ error: "Source image file not found on server" });
+      }
+    } else {
+      // Assume Base64 Data URL
+      const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (!match) {
+        return res.status(400).json({ error: "Invalid image data URL format or file path" });
+      }
+      mimeType = match[1];
+      base64Data = match[2];
     }
-    const [, mimeType, base64Data] = match;
 
     const response = await genai.models.generateContent({
       model: "gemini-3-pro-image-preview",
@@ -268,8 +380,17 @@ app.post("/api/upscale-image", async (req, res) => {
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) {
         const outMime = part.inlineData.mimeType || "image/png";
-        const dataUrl = `data:${outMime};base64,${part.inlineData.data}`;
-        return res.json({ image: dataUrl });
+        const outBase64 = part.inlineData.data;
+        const dataUrl = `data:${outMime};base64,${outBase64}`;
+
+        // Save upscaled image
+        const filename = `upscale-${Date.now()}-${Math.random().toString(36).substr(2, 6)}.png`;
+        const filePath = path.join(IMAGES_DIR, filename);
+        fs.writeFileSync(filePath, Buffer.from(outBase64, 'base64'));
+
+        const fileUrl = `/api/storage/images/${filename}`;
+
+        return res.json({ image: dataUrl, url: fileUrl });
       }
     }
 
@@ -654,7 +775,13 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
       }
     }
 
-    res.json({ prompts: allPrompts });
+    // Save prompts batch
+    const batchFilename = `batch-${Date.now()}.json`;
+    const batchPath = path.join(BATCHES_DIR, batchFilename);
+    fs.writeFileSync(batchPath, JSON.stringify(allPrompts, null, 2));
+    const batchUrl = `/api/storage/batches/${batchFilename}`;
+
+    res.json({ prompts: allPrompts, url: batchUrl });
   } catch (err) {
     console.error("Generate prompts error:", err.message || err);
     res.status(500).json({ error: err.message || "Prompt generation failed" });
@@ -669,10 +796,28 @@ app.post("/api/generate-video", async (req, res) => {
     const { image, prompt, fast } = req.body;
     if (!image) return res.status(400).json({ error: "Missing image data" });
 
-    // Extract base64
-    const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
-    if (!match) return res.status(400).json({ error: "Invalid image data URL" });
-    const [, mimeType, base64Data] = match;
+    let mimeType, base64Data;
+
+    // Check if input is a URL (from our storage)
+    if (typeof image === 'string' && image.startsWith("/api/storage/")) {
+      const relPath = image.replace("/api/storage", "");
+      const filePath = path.join(STORAGE_DIR, relPath);
+
+      if (fs.existsSync(filePath)) {
+        const buffer = fs.readFileSync(filePath);
+        base64Data = buffer.toString('base64');
+        mimeType = "image/png"; // Default fallback
+        if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) mimeType = "image/jpeg";
+      } else {
+        return res.status(404).json({ error: "Source image file not found on server" });
+      }
+    } else {
+      // Extract base64
+      const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (!match) return res.status(400).json({ error: "Invalid image data URL" });
+      mimeType = match[1];
+      base64Data = match[2];
+    }
 
     // 1. Director Mode: Generate Plan
     console.log("Step 1: Director Mode - Planning video...");
@@ -774,7 +919,7 @@ app.post("/api/generate-video", async (req, res) => {
       downloadPath: outputPath
     });
 
-    const videoUrl = `/api/videos/${videoId}`;
+    const videoUrl = `/api/storage/videos/${videoId}`;
     res.json({ videoUrl, plan, prompt: veoPrompt });
 
   } catch (err) {

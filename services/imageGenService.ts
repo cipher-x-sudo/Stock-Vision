@@ -66,3 +66,23 @@ export const generateVideoFromImage = async (
 
     return await res.json();
 };
+
+export interface HistoryBatch {
+    filename: string;
+    date: string;
+    count: number;
+    timestamp: number;
+}
+
+export const getBatchHistory = async (): Promise<HistoryBatch[]> => {
+    const res = await fetch(`${API_BASE}/api/history/batches`);
+    if (!res.ok) throw new Error("Failed to load history");
+    const data = await res.json();
+    return data.batches;
+};
+
+export const loadBatch = async (filename: string): Promise<ImagePrompt[]> => {
+    const res = await fetch(`${API_BASE}/api/history/batches/${filename}`);
+    if (!res.ok) throw new Error("Failed to load batch");
+    return await res.json();
+};
