@@ -60,6 +60,20 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
 
     const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
 
+    // Auto-import prompts when they arrive from cloning or scan
+    useEffect(() => {
+        if (sessionPrompts.length > 0) {
+            setItems(sessionPrompts.map(p => ({
+                prompt: p,
+                dataUrl: null,
+                upscaledUrl: null,
+                status: 'idle' as const,
+                upscaleStatus: 'idle' as const,
+                videoStatus: 'idle' as const,
+            })));
+        }
+    }, [sessionPrompts]);
+
     // Load history
     const openHistory = useCallback(async () => {
         setHistoryOpen(true);

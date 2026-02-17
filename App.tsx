@@ -7,6 +7,8 @@ import TrendChart from './components/TrendChart';
 import ScanConfigModal from './components/ScanConfigModal';
 import ImageStudio from './components/ImageStudio';
 import CloningMode from './components/CloningMode';
+import HistoryTab from './components/HistoryTab';
+import { useHistory } from './contexts/HistoryContext';
 
 const App: React.FC = () => {
   const [events, setEvents] = useState<UpcomingEvent[]>([]);
@@ -22,7 +24,10 @@ const App: React.FC = () => {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [pendingScanQuery, setPendingScanQuery] = useState('');
   const [pendingFromEvent, setPendingFromEvent] = useState(false);
-  const [activeTab, setActiveTab] = useState<'intelligence' | 'studio' | 'cloning'>('intelligence');
+
+  const [activeTab, setActiveTab] = useState<'intelligence' | 'studio' | 'cloning' | 'history'>('intelligence');
+
+  const { addToHistory, updateHistoryPrompts, currentHistoryId } = useHistory();
 
   const fetchEvents = useCallback(async () => {
     setInitialLoading(true);
@@ -128,6 +133,7 @@ const App: React.FC = () => {
       setStatus("Synthesis: Generating Creative Brief...");
       const result = await analyzeMarketData(searchQuery, images);
       setAnalysis(result);
+      addToHistory(searchQuery, result, images, []);
 
     } catch (err: any) {
       setError(`Scan Error: ${err.message || "Synthesis failed"}. Please try again.`);
@@ -145,6 +151,9 @@ const App: React.FC = () => {
     try {
       const prompts = await generateImagePrompts(analysis.brief.event, analysis.brief);
       setImagePrompts(prompts);
+      if (currentHistoryId) {
+        updateHistoryPrompts(currentHistoryId, prompts);
+      }
     } catch (err: any) {
       setError(`Prompts Error: ${err.message || "Failed to generate prompts"}.`);
     } finally {
@@ -234,6 +243,15 @@ const App: React.FC = () => {
           >
             <i className="fa-solid fa-wand-magic-sparkles mr-2"></i> Image Studio
           </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'history'
+              ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+              : 'bg-[#161d2f] text-slate-400 hover:text-white border border-white/5'
+              }`}
+          >
+            <i className="fa-solid fa-clock-rotate-left mr-2"></i> History
+          </button>
         </div>
       </nav>
 
@@ -245,6 +263,8 @@ const App: React.FC = () => {
           <React.Suspense fallback={<div className="text-center p-20 text-slate-500">Loading Cloning Module...</div>}>
             <CloningMode onPromptsGenerated={handleCloningPrompts} />
           </React.Suspense>
+        ) : activeTab === 'history' ? (
+          <HistoryTab />
         ) : (
           <>
 
@@ -345,7 +365,7 @@ const App: React.FC = () => {
                 <div className="mt-16 flex flex-col items-center space-y-4 animate-in fade-in duration-500">
                   <p className="text-sky-400 font-black text-xs uppercase tracking-[0.5em] animate-pulse">{status}</p>
                   <div className="w-[400px] h-1.5 bg-[#161d2f] rounded-full overflow-hidden relative">
-                    <div className="h-full bg-sky-500 w-1/3 absolute animate-[progress_1.5s_infinite]"></div>
+                    <div className="h-full bg-sky-500 w-1/3 rounded-full" style={{ animation: 'progress 1.5s ease-in-out infinite' }}></div>
                   </div>
                 </div>
               )}

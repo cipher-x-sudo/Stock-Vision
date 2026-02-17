@@ -101,3 +101,12 @@ export interface ScanConfig {
   startPage?: number;
   endPage?: number;
 }
+
+export interface HistoryItem {
+  id: string;
+  timestamp: number;
+  query: string;
+  analysis: AnalysisResult | null;
+  marketData: StockInsight[];
+  prompts: ImagePrompt[];
+}
