@@ -1,12 +1,18 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { HistoryItem, AnalysisResult, StockInsight, ImagePrompt } from '../types';
+import { HistoryItem, AnalysisResult, StockInsight, ImagePrompt, StoredImage, StoredVideo, StoredBatch } from '../types';
 
 interface HistoryContextType {
     history: HistoryItem[];
+    images: StoredImage[];
+    videos: StoredVideo[];
+    batches: StoredBatch[];
     addToHistory: (query: string, analysis: AnalysisResult | null, marketData: StockInsight[], prompts: ImagePrompt[]) => Promise<string | null>;
     updateHistoryPrompts: (id: string, prompts: ImagePrompt[]) => Promise<void>;
     deleteFromHistory: (id: string) => Promise<void>;
-    clearHistory: () => Promise<void>; // Server might not support clear all yet, but we can implement iteration
+    clearHistory: () => Promise<void>;
+    deleteImage: (filename: string) => Promise<void>;
+    deleteVideo: (filename: string) => Promise<void>;
+    deleteBatch: (filename: string) => Promise<void>;
     currentHistoryId: string | null;
     setCurrentHistoryId: (id: string | null) => void;
     isLoading: boolean;
@@ -33,6 +39,10 @@ interface HistoryProviderProps {
 
 export const HistoryProvider: React.FC<HistoryProviderProps> = ({ children }) => {
     const [history, setHistory] = useState<HistoryItem[]>([]);
+    const [images, setImages] = useState<StoredImage[]>([]);
+    const [videos, setVideos] = useState<StoredVideo[]>([]);
+    const [batches, setBatches] = useState<StoredBatch[]>([]);
+
     const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -44,23 +54,44 @@ export const HistoryProvider: React.FC<HistoryProviderProps> = ({ children }) =>
 
     // Load from Server
     useEffect(() => {
-        const fetchHistory = async () => {
+        const fetchAll = async () => {
             setIsLoading(true);
             setError(null);
             try {
-                const res = await fetch(`${API_BASE}/history`);
-                if (!res.ok) throw new Error('Failed to fetch history');
-                const data = await res.json();
-                setHistory(data.history || []);
+                const [histRes, imgRes, vidRes, batchRes] = await Promise.all([
+                    fetch(`${API_BASE}/history`),
+                    fetch(`${API_BASE}/history/images`),
+                    fetch(`${API_BASE}/history/videos`),
+                    fetch(`${API_BASE}/history/batches`)
+                ]);
+
+                if (!histRes.ok) throw new Error('Failed to fetch history');
+
+                const histData = await histRes.json();
+                setHistory(histData.history || []);
+
+                if (imgRes.ok) {
+                    const imgData = await imgRes.json();
+                    setImages(imgData.images || []);
+                }
+                if (vidRes.ok) {
+                    const vidData = await vidRes.json();
+                    setVideos(vidData.videos || []);
+                }
+                if (batchRes.ok) {
+                    const batchData = await batchRes.json();
+                    setBatches(batchData.batches || []);
+                }
+
             } catch (err: any) {
                 console.error("History fetch error:", err);
-                setError("Failed to load history from server.");
+                setError("Failed to load data from server.");
             } finally {
                 setIsLoading(false);
             }
         };
 
-        fetchHistory();
+        fetchAll();
     }, [refreshTrigger]);
 
     const addToHistory = async (query: string, analysis: AnalysisResult | null, marketData: StockInsight[], prompts: ImagePrompt[]) => {
@@ -87,8 +118,6 @@ export const HistoryProvider: React.FC<HistoryProviderProps> = ({ children }) =>
             return newItem.id;
         } catch (err) {
             console.error("Save history failed:", err);
-            // Revert optimistic update? Or just warn?
-            // For now, warn but keep in local state (it will be lost on reload if save failed)
             return null;
         }
     };
@@ -125,14 +154,11 @@ export const HistoryProvider: React.FC<HistoryProviderProps> = ({ children }) =>
             if (!res.ok) throw new Error('Failed to delete from server');
         } catch (err) {
             console.error("Delete history failed:", err);
-            // Could re-fetch to restore sync
             refreshHistory();
         }
     };
 
     const clearHistory = async () => {
-        // This requires iterating delete or a clearer endpoint. 
-        // Implementing client-side iteration as temporary solution since server doesn't have bulk delete yet.
         if (history.length === 0) return;
 
         // Optimistic clear
@@ -151,13 +177,49 @@ export const HistoryProvider: React.FC<HistoryProviderProps> = ({ children }) =>
         }
     };
 
+    const deleteImage = async (filename: string) => {
+        setImages(prev => prev.filter(i => i.filename !== filename));
+        try {
+            await fetch(`${API_BASE}/history/images/${filename}`, { method: 'DELETE' });
+        } catch (e) {
+            console.error("Failed to delete image", e);
+            refreshHistory();
+        }
+    };
+
+    const deleteVideo = async (filename: string) => {
+        setVideos(prev => prev.filter(v => v.filename !== filename));
+        try {
+            await fetch(`${API_BASE}/history/videos/${filename}`, { method: 'DELETE' });
+        } catch (e) {
+            console.error("Failed to delete video", e);
+            refreshHistory();
+        }
+    };
+
+    const deleteBatch = async (filename: string) => {
+        setBatches(prev => prev.filter(b => b.filename !== filename));
+        try {
+            await fetch(`${API_BASE}/history/batches/${filename}`, { method: 'DELETE' });
+        } catch (e) {
+            console.error("Failed to delete batch", e);
+            refreshHistory();
+        }
+    };
+
     return (
         <HistoryContext.Provider value={{
             history,
+            images,
+            videos,
+            batches,
             addToHistory,
             updateHistoryPrompts,
             deleteFromHistory,
             clearHistory,
+            deleteImage,
+            deleteVideo,
+            deleteBatch,
             currentHistoryId,
             setCurrentHistoryId,
             isLoading,

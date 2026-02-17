@@ -362,6 +362,123 @@ app.delete("/api/history/:id", (req, res) => {
 });
 
 
+// ── Asset Gallery API ─────────────────────────────────────────
+
+// Helper to list files with metadata
+const listFiles = (dir, urlPrefix) => {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .map(file => {
+      const filePath = path.join(dir, file);
+      try {
+        const stats = fs.statSync(filePath);
+        if (stats.isDirectory()) return null;
+        return {
+          filename: file,
+          url: `${urlPrefix}/${file}`,
+          timestamp: stats.mtimeMs,
+          size: stats.size
+        };
+      } catch (e) {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.timestamp - a.timestamp);
+};
+
+// GET /api/history/images
+app.get("/api/history/images", (req, res) => {
+  try {
+    const images = listFiles(IMAGES_DIR, "/api/storage/images");
+    res.json({ images });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to list images" });
+  }
+});
+
+// DELETE /api/history/images/:filename
+app.delete("/api/history/images/:filename", (req, res) => {
+  const filename = req.params.filename;
+  // Basic sanity check to prevent directory traversal
+  if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
+    return res.status(400).json({ error: "Invalid filename" });
+  }
+  const filePath = path.join(IMAGES_DIR, filename);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to delete file" });
+    }
+  } else {
+    res.status(404).json({ error: "File not found" });
+  }
+});
+
+// GET /api/history/videos
+app.get("/api/history/videos", (req, res) => {
+  try {
+    const videos = listFiles(VIDEOS_DIR, "/api/storage/videos");
+    res.json({ videos });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to list videos" });
+  }
+});
+
+// DELETE /api/history/videos/:filename
+app.delete("/api/history/videos/:filename", (req, res) => {
+  const filename = req.params.filename;
+  if (filename.includes("..")) return res.status(400).json({ error: "Invalid filename" });
+
+  const filePath = path.join(VIDEOS_DIR, filename);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to delete file" });
+    }
+  } else {
+    res.status(404).json({ error: "File not found" });
+  }
+});
+
+// GET /api/history/batches (Enhanced)
+app.get("/api/history/batches", (req, res) => {
+  try {
+    const batches = listFiles(BATCHES_DIR, "/api/storage/batches")
+      .filter(b => b.filename.endsWith(".json"))
+      .map(b => {
+        // Optionally read count, or simpler just return basic metadata
+        return b;
+      });
+    res.json({ batches });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to list batches" });
+  }
+});
+
+// DELETE /api/history/batches/:filename
+app.delete("/api/history/batches/:filename", (req, res) => {
+  const filename = req.params.filename;
+  if (filename.includes("..")) return res.status(400).json({ error: "Invalid filename" });
+
+  const filePath = path.join(BATCHES_DIR, filename);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to delete file" });
+    }
+  } else {
+    res.status(404).json({ error: "File not found" });
+  }
+});
+
+
 // ── Image Generation (Nano Banana Pro) ────────────────────────
 app.post("/api/generate-image", async (req, res) => {
   try {

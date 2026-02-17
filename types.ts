@@ -110,3 +110,25 @@ export interface HistoryItem {
   marketData: StockInsight[];
   prompts: ImagePrompt[];
 }
+
+export interface StoredImage {
+  filename: string;
+  url: string;
+  timestamp: number;
+  size?: number;
+}
+
+export interface StoredVideo {
+  filename: string;
+  url: string;
+  timestamp: number;
+  size?: number;
+}
+
+export interface StoredBatch {
+  filename: string;
+  url: string;
+  timestamp: number;
+  size?: number;
+  count?: number;
+}
