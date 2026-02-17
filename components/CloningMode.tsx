@@ -410,14 +410,14 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             {(loading || cloning) && (
                 <div className="max-w-xl mx-auto space-y-3 animate-in fade-in duration-300">
                     <p className="text-pink-400 font-black text-xs uppercase tracking-[0.5em] animate-pulse text-center">{status}</p>
-                    <div className="w-full h-2.5 bg-[#161d2f] rounded-full overflow-hidden">
+                    <div className="w-full h-2.5 bg-[#161d2f] rounded-full overflow-hidden relative">
                         {cloning ? (
                             <div
                                 className="h-full bg-gradient-to-r from-pink-500 to-rose-500 rounded-full transition-all duration-700 ease-out"
                                 style={{ width: `${Math.max(progressPercent, 10)}%` }}
                             />
                         ) : (
-                            <div className="h-full bg-pink-500 w-1/3 absolute animate-[progress_1.5s_infinite] rounded-full" />
+                            <div className="h-full bg-pink-500 w-1/3 rounded-full" style={{ animation: 'progress 1.5s ease-in-out infinite' }} />
                         )}
                     </div>
                     {cloning && (
