@@ -257,6 +257,111 @@ app.get("/api/history/batches/:filename", (req, res) => {
 });
 
 
+// ── History API (Server-Side Persistence) ─────────────────────
+const HISTORY_DIR = path.join(STORAGE_DIR, "history");
+if (!fs.existsSync(HISTORY_DIR)) {
+  fs.mkdirSync(HISTORY_DIR, { recursive: true });
+}
+
+// Ensure cleanup for history too (optional, maybe keep longer?)
+// [VIDEOS_DIR, IMAGES_DIR, BATCHES_DIR, HISTORY_DIR].forEach... 
+// For now, let's NOT auto-delete history unless user requests.
+
+// GET /api/history - List all history items
+app.get("/api/history", (req, res) => {
+  fs.readdir(HISTORY_DIR, (err, files) => {
+    if (err) return res.status(500).json({ error: "Failed to read history" });
+
+    const historyItems = files
+      .filter(f => f.endsWith(".json"))
+      .map(f => {
+        const filePath = path.join(HISTORY_DIR, f);
+        try {
+          const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          return content;
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.timestamp - a.timestamp); // Newest first
+
+    res.json({ history: historyItems });
+  });
+});
+
+// GET /api/history/:id - Get specific item
+app.get("/api/history/:id", (req, res) => {
+  const filePath = path.join(HISTORY_DIR, `history-${req.params.id}.json`);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Item not found" });
+  }
+  try {
+    const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    res.json(content);
+  } catch (e) {
+    res.status(500).json({ error: "Failed to parse history item" });
+  }
+});
+
+// POST /api/history - Create/Add item
+app.post("/api/history", (req, res) => {
+  const item = req.body;
+  if (!item || !item.id) {
+    return res.status(400).json({ error: "Invalid history item" });
+  }
+  const filePath = path.join(HISTORY_DIR, `history-${item.id}.json`);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(item, null, 2));
+    res.json({ success: true, id: item.id });
+  } catch (e) {
+    console.error("Save history error:", e);
+    res.status(500).json({ error: "Failed to save history" });
+  }
+});
+
+// PUT /api/history/:id - Update item (e.g. add prompts)
+app.put("/api/history/:id", (req, res) => {
+  const id = req.params.id;
+  const filePath = path.join(HISTORY_DIR, `history-${id}.json`);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "History item not found" });
+  }
+
+  try {
+    const existing = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const updates = req.body;
+
+    // Merge updates
+    const updated = { ...existing, ...updates };
+
+    fs.writeFileSync(filePath, JSON.stringify(updated, null, 2));
+    res.json({ success: true, item: updated });
+  } catch (e) {
+    console.error("Update history error:", e);
+    res.status(500).json({ error: "Failed to update history" });
+  }
+});
+
+// DELETE /api/history/:id
+app.delete("/api/history/:id", (req, res) => {
+  const id = req.params.id;
+  const filePath = path.join(HISTORY_DIR, `history-${id}.json`);
+
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to delete item" });
+    }
+  } else {
+    res.status(404).json({ error: "Item not found" });
+  }
+});
+
+
 // ── Image Generation (Nano Banana Pro) ────────────────────────
 app.post("/api/generate-image", async (req, res) => {
   try {
