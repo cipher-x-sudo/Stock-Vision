@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { StockInsight, ImagePrompt, ContentTypeFilter } from '../types';
-import { searchTrackAdobe } from '../services/trackAdobeService';
+import { StockInsight, ImagePrompt, ScanConfig, ContentTypeFilter } from '../types';
+import { searchTrackAdobeMultiplePages } from '../services/trackAdobeService';
+import ScanConfigModal from './ScanConfigModal';
 
 interface CloningModeProps {
     onPromptsGenerated: (prompts: ImagePrompt[]) => void;
@@ -9,32 +10,33 @@ interface CloningModeProps {
 type SortOrder = 'downloads' | 'date' | 'relevance';
 
 // ── Image Detail Modal ────────────────────────────────────────
-const ImageDetailModal: React.FC<{ img: StockInsight; onClose: () => void; selected: boolean; onToggle: () => void; onClone: () => void; cloning: boolean }> = ({ img, onClose, selected, onToggle, onClone, cloning }) => (
+const ImageDetailModal: React.FC<{
+    img: StockInsight;
+    onClose: () => void;
+    selected: boolean;
+    onToggle: () => void;
+    onClone: () => void;
+    cloning: boolean;
+}> = ({ img, onClose, selected, onToggle, onClone, cloning }) => (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
         <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
         <div
             className="relative bg-[#0d1425] rounded-[2.5rem] border border-white/10 shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
         >
-            {/* Close */}
             <button onClick={onClose} className="absolute top-5 right-5 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all">
                 <i className="fa-solid fa-xmark text-lg" />
             </button>
-
-            {/* Image */}
             <div className="relative aspect-video bg-black/50 rounded-t-[2.5rem] overflow-hidden">
                 <img src={img.thumbnailUrl} alt={img.title} className="w-full h-full object-contain" />
                 {img.isAI && (
                     <span className="absolute top-4 left-4 px-3 py-1 bg-violet-600 rounded-lg text-[10px] font-black text-white uppercase">AI Generated</span>
                 )}
             </div>
-
-            {/* Details */}
             <div className="p-8 space-y-6">
                 <h3 className="text-2xl font-black text-white leading-tight">{img.title}</h3>
-
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                    {[
+                    {([
                         ['Downloads', img.downloads],
                         ['Creator', `${img.creator}${img.creatorId ? ` (${img.creatorId})` : ''}`],
                         ['Media Type', img.mediaType],
@@ -43,14 +45,13 @@ const ImageDetailModal: React.FC<{ img: StockInsight; onClose: () => void; selec
                         ['Dimensions', img.dimensions || '—'],
                         ['Upload Date', img.uploadDate ? String(img.uploadDate).slice(0, 10) : '—'],
                         ['Premium', img.premium || '—'],
-                    ].map(([label, value]) => (
-                        <div key={label as string} className="flex flex-col gap-1 p-3 bg-[#161d2f] rounded-xl border border-white/5">
+                    ] as [string, string | number][]).map(([label, value]) => (
+                        <div key={label} className="flex flex-col gap-1 p-3 bg-[#161d2f] rounded-xl border border-white/5">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</span>
                             <span className="text-slate-200 font-medium truncate">{value}</span>
                         </div>
                     ))}
                 </div>
-
                 {Array.isArray(img.keywords) && img.keywords.length > 0 && (
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Keywords</p>
@@ -61,8 +62,6 @@ const ImageDetailModal: React.FC<{ img: StockInsight; onClose: () => void; selec
                         </div>
                     </div>
                 )}
-
-                {/* Actions */}
                 <div className="flex gap-3 pt-4 border-t border-white/5">
                     <button
                         onClick={onToggle}
@@ -95,11 +94,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<StockInsight[]>([]);
-    const [page, setPage] = useState(1);
-    const [hasMore, setHasMore] = useState(false);
+    const [searchInfo, setSearchInfo] = useState('');
 
-    // Filter state
-    const [contentType, setContentType] = useState<ContentTypeFilter>('all');
+    // Config modal state
+    const [showConfigModal, setShowConfigModal] = useState(false);
+    const [lastConfig, setLastConfig] = useState<ScanConfig | null>(null);
+
+    // Sort state (sort is client-side on already-fetched results)
     const [sortOrder, setSortOrder] = useState<SortOrder>('downloads');
 
     // Selection state
@@ -115,26 +116,66 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     // Modal state
     const [detailImage, setDetailImage] = useState<StockInsight | null>(null);
 
-    // ── Search ────────────────────────────────────────────────
-    const executeSearch = useCallback(async (searchPage: number) => {
+    // ── Open config modal before searching ─────────────────────
+    const handleSearchClick = useCallback(() => {
         if (!query.trim()) return;
+        setShowConfigModal(true);
+    }, [query]);
+
+    // ── Execute search with config ────────────────────────────
+    const executeSearch = useCallback(async (config: ScanConfig) => {
+        setShowConfigModal(false);
+        setLastConfig(config);
         setLoading(true);
         setError(null);
         setSuccessMsg('');
+        setResults([]);
+        setSelectedIds(new Set());
+
+        const startPage = config.startPage || 1;
+        const endPage = config.endPage || 3;
+
         try {
-            const res = await searchTrackAdobe(query, searchPage, false, contentType);
-            setResults(res.images);
-            setPage(searchPage);
-            setHasMore(res.images.length >= 20); // typical page size
-            if (searchPage === 1) setSelectedIds(new Set());
+            setStatus(`Scanning pages ${startPage}–${endPage}...`);
+            const res = await searchTrackAdobeMultiplePages(
+                query, startPage, endPage,
+                config.aiOnly, config.contentType
+            );
+
+            let images = res.images;
+
+            // Apply min downloads filter
+            if (config.minDownloads > 0) {
+                images = images.filter(img => {
+                    const dl = typeof img.downloads === 'number'
+                        ? img.downloads
+                        : parseInt(String(img.downloads).replace(/\D/g, ''), 10) || 0;
+                    return dl >= config.minDownloads;
+                });
+            }
+
+            // Apply year range filter
+            if (config.yearFrom || config.yearTo) {
+                images = images.filter(img => {
+                    if (!img.uploadDate) return false;
+                    const year = new Date(img.uploadDate).getFullYear();
+                    if (isNaN(year)) return false;
+                    if (config.yearFrom && year < config.yearFrom) return false;
+                    if (config.yearTo && year > config.yearTo) return false;
+                    return true;
+                });
+            }
+
+            setResults(images);
+            const pageRange = startPage === endPage ? `page ${startPage}` : `pages ${startPage}–${endPage}`;
+            setSearchInfo(`${images.length} results from ${pageRange} · ${config.aiOnly ? 'AI only' : 'All'} · ${config.contentType} · ≥${config.minDownloads} DLs`);
         } catch (err: any) {
             setError("Search failed: " + err.message);
         } finally {
             setLoading(false);
+            setStatus('');
         }
-    }, [query, contentType]);
-
-    const handleSearch = useCallback(() => executeSearch(1), [executeSearch]);
+    }, [query]);
 
     // ── Sort ──────────────────────────────────────────────────
     const sortedResults = useMemo(() => {
@@ -154,7 +195,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 });
             case 'relevance':
             default:
-                return copy; // API default order
+                return copy;
         }
     }, [results, sortOrder]);
 
@@ -181,7 +222,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     // ── Clone ─────────────────────────────────────────────────
     const handleClone = useCallback(async (imagesToClone: StockInsight[]) => {
         if (imagesToClone.length === 0) return;
-        const cloneSlice = imagesToClone.slice(0, 5); // server limit
+        const cloneSlice = imagesToClone.slice(0, 5);
         setCloning(true);
         setError(null);
         setSuccessMsg('');
@@ -195,7 +236,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 id: img.id
             }));
 
-            // Simulated per-image progress via interval
             let progressIdx = 0;
             const progressInterval = setInterval(() => {
                 progressIdx = Math.min(progressIdx + 1, cloneSlice.length);
@@ -260,11 +300,11 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                         className="flex-1 bg-transparent py-6 text-2xl outline-none font-semibold placeholder:text-slate-700 text-pink-100"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSearchClick()}
                     />
                     <button
-                        onClick={handleSearch}
-                        disabled={loading || cloning}
+                        onClick={handleSearchClick}
+                        disabled={loading || cloning || !query.trim()}
                         className="bg-pink-600 hover:bg-pink-500 disabled:bg-slate-800 px-12 py-5 rounded-[2rem] font-black transition-all text-sm uppercase tracking-widest text-white shadow-lg shadow-pink-500/30 flex items-center space-x-3 active:scale-95"
                     >
                         {loading ? <i className="fa-solid fa-circle-notch fa-spin text-lg" /> : <span>FIND BEST</span>}
@@ -272,26 +312,25 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 </div>
             </div>
 
-            {/* ── Filters Bar ────────────────────────────────── */}
-            {results.length > 0 && (
-                <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-4 px-2">
-                    {/* Content Type Filter */}
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Type</span>
-                        <select
-                            value={contentType}
-                            onChange={e => { setContentType(e.target.value as ContentTypeFilter); }}
-                            className="bg-[#161d2f] text-slate-200 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider outline-none focus:border-pink-500/50 transition-all cursor-pointer appearance-none"
-                            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2394a3b8'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center', backgroundSize: '16px', paddingRight: '32px' }}
-                        >
-                            <option value="all">All</option>
-                            <option value="photo">Photo</option>
-                            <option value="vector">Vector</option>
-                            <option value="illustration">Illustration</option>
-                            <option value="video">Video</option>
-                        </select>
-                    </div>
+            {/* ── Last Config Info Badge ──────────────────────── */}
+            {lastConfig && !loading && results.length > 0 && (
+                <div className="max-w-3xl mx-auto flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-500">
+                        <i className="fa-solid fa-sliders mr-2 text-pink-500/60" />
+                        {searchInfo}
+                    </p>
+                    <button
+                        onClick={() => setShowConfigModal(true)}
+                        className="text-xs font-black uppercase tracking-widest text-pink-400 hover:text-pink-300 transition-colors"
+                    >
+                        <i className="fa-solid fa-gear mr-1" /> Re-configure
+                    </button>
+                </div>
+            )}
 
+            {/* ── Toolbar (Sort + Selection) ──────────────────── */}
+            {sortedResults.length > 0 && (
+                <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-4 px-2">
                     {/* Sort Order */}
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Sort</span>
@@ -307,7 +346,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                         </select>
                     </div>
 
-                    {/* Spacer */}
                     <div className="flex-1" />
 
                     {/* Selection Controls */}
@@ -324,29 +362,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 {selectedIds.size} selected
                             </span>
                         )}
-                    </div>
-
-                    {/* Result Count + Pagination */}
-                    <div className="flex items-center gap-3">
-                        <span className="text-xs font-bold text-slate-500">
-                            {sortedResults.length} results · Page {page}
-                        </span>
-                        <div className="flex gap-1">
-                            <button
-                                onClick={() => executeSearch(page - 1)}
-                                disabled={page <= 1 || loading}
-                                className="w-9 h-9 rounded-lg bg-[#161d2f] border border-white/10 flex items-center justify-center text-slate-400 hover:text-white disabled:opacity-30 transition-all"
-                            >
-                                <i className="fa-solid fa-chevron-left text-xs" />
-                            </button>
-                            <button
-                                onClick={() => executeSearch(page + 1)}
-                                disabled={!hasMore || loading}
-                                className="w-9 h-9 rounded-lg bg-[#161d2f] border border-white/10 flex items-center justify-center text-slate-400 hover:text-white disabled:opacity-30 transition-all"
-                            >
-                                <i className="fa-solid fa-chevron-right text-xs" />
-                            </button>
-                        </div>
                     </div>
                 </div>
             )}
@@ -367,17 +382,23 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 </div>
             )}
 
-            {/* ── Cloning Progress ────────────────────────────── */}
-            {cloning && (
+            {/* ── Loading / Cloning Progress ──────────────────── */}
+            {(loading || cloning) && (
                 <div className="max-w-xl mx-auto space-y-3 animate-in fade-in duration-300">
                     <p className="text-pink-400 font-black text-xs uppercase tracking-[0.5em] animate-pulse text-center">{status}</p>
                     <div className="w-full h-2.5 bg-[#161d2f] rounded-full overflow-hidden">
-                        <div
-                            className="h-full bg-gradient-to-r from-pink-500 to-rose-500 rounded-full transition-all duration-700 ease-out"
-                            style={{ width: `${Math.max(progressPercent, 10)}%` }}
-                        />
+                        {cloning ? (
+                            <div
+                                className="h-full bg-gradient-to-r from-pink-500 to-rose-500 rounded-full transition-all duration-700 ease-out"
+                                style={{ width: `${Math.max(progressPercent, 10)}%` }}
+                            />
+                        ) : (
+                            <div className="h-full bg-pink-500 w-1/3 absolute animate-[progress_1.5s_infinite] rounded-full" />
+                        )}
                     </div>
-                    <p className="text-center text-slate-500 text-xs font-bold">{cloningProgress.current} / {cloningProgress.total} images</p>
+                    {cloning && (
+                        <p className="text-center text-slate-500 text-xs font-bold">{cloningProgress.current} / {cloningProgress.total} images</p>
+                    )}
                 </div>
             )}
 
@@ -389,7 +410,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                             <i className="fa-solid fa-list-ol text-pink-500 mr-3" />
                             Top Performers
                         </h3>
-                        {/* Quick Clone Buttons */}
                         <div className="flex gap-3">
                             <button
                                 onClick={() => handleClone([sortedResults[0]])}
@@ -430,7 +450,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                 : 'border-white/5 hover:border-pink-500/40'
                                         }`}
                                 >
-                                    {/* ── Card Image ────────────── */}
                                     <div
                                         className="aspect-square bg-[#0d1425] relative overflow-hidden"
                                         onClick={() => setDetailImage(img)}
@@ -440,11 +459,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                             alt={img.title}
                                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                                         />
-
-                                        {/* Gradient overlay */}
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-                                        {/* Top badges */}
                                         {isTop && (
                                             <div className="absolute top-3 left-3 px-3 py-1 bg-amber-500 text-white font-black text-[10px] uppercase rounded-lg shadow-lg">
                                                 <i className="fa-solid fa-trophy mr-1" /> #1 Viral
@@ -453,23 +468,17 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                         {img.isAI && (
                                             <span className="absolute top-3 right-3 px-2 py-1 bg-violet-600 rounded-lg text-[10px] font-black text-white uppercase">AI</span>
                                         )}
-
-                                        {/* Rank badge */}
                                         {idx > 0 && idx < 5 && (
                                             <div className="absolute top-3 left-3 w-7 h-7 bg-black/60 backdrop-blur-sm rounded-lg flex items-center justify-center text-white font-black text-xs border border-white/10">
                                                 {idx + 1}
                                             </div>
                                         )}
-
-                                        {/* Expand icon on hover */}
                                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                                             <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
                                                 <i className="fa-solid fa-expand text-white text-lg" />
                                             </div>
                                         </div>
                                     </div>
-
-                                    {/* ── Card Footer ───────────── */}
                                     <div className="p-4 bg-[#0d1425]">
                                         <div className="flex items-start justify-between gap-2">
                                             <div className="flex-1 min-w-0">
@@ -486,7 +495,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                 </div>
                                             </div>
                                             <div className="flex gap-1.5 shrink-0">
-                                                {/* Select checkbox */}
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); toggleSelect(img.id); }}
                                                     className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${isSelected
@@ -497,7 +505,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                 >
                                                     <i className={`fa-solid ${isSelected ? 'fa-check' : 'fa-plus'} text-xs`} />
                                                 </button>
-                                                {/* Quick clone button */}
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); handleClone([img]); }}
                                                     disabled={cloning}
@@ -509,8 +516,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                             </div>
                                         </div>
                                     </div>
-
-                                    {/* Selected overlay check */}
                                     {isSelected && (
                                         <div className="absolute top-3 right-3 w-7 h-7 bg-pink-500 rounded-full flex items-center justify-center shadow-lg shadow-pink-500/40 z-10 pointer-events-none">
                                             <i className="fa-solid fa-check text-white text-xs" />
@@ -520,27 +525,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                             );
                         })}
                     </div>
-
-                    {/* ── Pagination Footer ────────────────────── */}
-                    <div className="flex justify-center gap-3 pt-4">
-                        <button
-                            onClick={() => executeSearch(page - 1)}
-                            disabled={page <= 1 || loading}
-                            className="px-6 py-3 bg-[#161d2f] hover:bg-[#1a2339] border border-white/10 rounded-xl font-black text-xs uppercase tracking-widest text-slate-300 transition-all disabled:opacity-30"
-                        >
-                            <i className="fa-solid fa-arrow-left mr-2" /> Previous
-                        </button>
-                        <span className="px-6 py-3 bg-[#0d1425] border border-white/5 rounded-xl font-black text-xs text-slate-500">
-                            Page {page}
-                        </span>
-                        <button
-                            onClick={() => executeSearch(page + 1)}
-                            disabled={!hasMore || loading}
-                            className="px-6 py-3 bg-[#161d2f] hover:bg-[#1a2339] border border-white/10 rounded-xl font-black text-xs uppercase tracking-widest text-slate-300 transition-all disabled:opacity-30"
-                        >
-                            Next <i className="fa-solid fa-arrow-right ml-2" />
-                        </button>
-                    </div>
                 </div>
             )}
 
@@ -549,7 +533,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 <div className="fixed bottom-0 left-0 right-0 z-50 animate-in slide-in-from-bottom duration-300">
                     <div className="max-w-5xl mx-auto px-6 pb-6">
                         <div className="bg-[#0d1425]/95 backdrop-blur-xl border-2 border-pink-500/30 rounded-[2rem] p-4 flex items-center gap-4 shadow-2xl shadow-pink-500/10">
-                            {/* Thumbnail strip */}
                             <div className="flex -space-x-2 shrink-0">
                                 {selectedImages.slice(0, 5).map(img => (
                                     <div key={img.id} className="w-10 h-10 rounded-xl overflow-hidden border-2 border-[#0d1425] shadow-lg">
@@ -562,8 +545,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     </div>
                                 )}
                             </div>
-
-                            {/* Info */}
                             <div className="flex-1 min-w-0">
                                 <p className="text-white font-black text-sm">
                                     {selectedIds.size} image{selectedIds.size > 1 ? 's' : ''} selected
@@ -572,8 +553,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     {selectedIds.size > 5 ? 'Only first 5 will be processed (API limit)' : 'Ready to clone'}
                                 </p>
                             </div>
-
-                            {/* Actions */}
                             <button
                                 onClick={deselectAll}
                                 className="px-4 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-black uppercase text-slate-400 transition-all"
@@ -590,6 +569,15 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ── ScanConfig Modal ────────────────────────────── */}
+            {showConfigModal && (
+                <ScanConfigModal
+                    eventName={query}
+                    onConfirm={executeSearch}
+                    onCancel={() => setShowConfigModal(false)}
+                />
             )}
 
             {/* ── Detail Modal ────────────────────────────────── */}
