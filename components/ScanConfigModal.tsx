@@ -6,6 +6,7 @@ interface ScanConfigModalProps {
     eventName: string;
     onConfirm: (config: ScanConfig) => void;
     onCancel: () => void;
+    initialConfig?: Partial<ScanConfig>;
 }
 
 const CONTENT_TYPES: { value: ContentTypeFilter; label: string; icon: string }[] = [
@@ -29,8 +30,8 @@ const DEFAULT_CONFIG: ScanConfig = {
     endPage: 3,
 };
 
-const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm, onCancel }) => {
-    const [config, setConfig] = useState<ScanConfig>(DEFAULT_CONFIG);
+const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm, onCancel, initialConfig }) => {
+    const [config, setConfig] = useState<ScanConfig>({ ...DEFAULT_CONFIG, ...initialConfig });
     const backdropRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {

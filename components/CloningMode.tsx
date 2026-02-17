@@ -95,6 +95,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<StockInsight[]>([]);
     const [searchInfo, setSearchInfo] = useState('');
+    const [searchedOnce, setSearchedOnce] = useState(false);
 
     // Config modal state
     const [showConfigModal, setShowConfigModal] = useState(false);
@@ -131,6 +132,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         setSuccessMsg('');
         setResults([]);
         setSelectedIds(new Set());
+        setSearchedOnce(false);
 
         const startPage = config.startPage || 1;
         const endPage = config.endPage || 3;
@@ -174,6 +176,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         } finally {
             setLoading(false);
             setStatus('');
+            setSearchedOnce(true);
         }
     }, [query]);
 
@@ -325,6 +328,27 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                     >
                         <i className="fa-solid fa-gear mr-1" /> Re-configure
                     </button>
+                </div>
+            )}
+
+            {/* ── No Results State ────────────────────────────── */}
+            {searchedOnce && !loading && results.length === 0 && !error && (
+                <div className="max-w-xl mx-auto text-center space-y-5 py-10 animate-in fade-in duration-300">
+                    <div className="w-20 h-20 rounded-full bg-[#161d2f] flex items-center justify-center mx-auto border border-white/5">
+                        <i className="fa-solid fa-ghost text-3xl text-slate-600" />
+                    </div>
+                    <h3 className="text-xl font-black text-white">No Results Found</h3>
+                    <p className="text-slate-500 text-sm font-medium">
+                        Try broadening your search: disable "AI Only", increase the page range, lower the minimum downloads, or use a different keyword.
+                    </p>
+                    <div className="flex justify-center gap-3">
+                        <button
+                            onClick={() => setShowConfigModal(true)}
+                            className="px-6 py-3 bg-pink-600 hover:bg-pink-500 rounded-xl font-black text-xs uppercase tracking-widest text-white shadow-lg shadow-pink-500/20 transition-all"
+                        >
+                            <i className="fa-solid fa-gear mr-2" /> Re-configure & Retry
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -577,6 +601,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                     eventName={query}
                     onConfirm={executeSearch}
                     onCancel={() => setShowConfigModal(false)}
+                    initialConfig={{ aiOnly: false }}
                 />
             )}
 
