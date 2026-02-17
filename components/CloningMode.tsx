@@ -21,21 +21,26 @@ const ImageDetailModal: React.FC<{
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
         <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
         <div
-            className="relative bg-[#0d1425] rounded-[2.5rem] border border-white/10 shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+            className="relative bg-[#0d1425] rounded-[2.5rem] border border-white/10 shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden"
             onClick={e => e.stopPropagation()}
         >
-            <button onClick={onClose} className="absolute top-5 right-5 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all">
+            {/* Close button – always visible */}
+            <button onClick={onClose} className="absolute top-5 right-5 z-20 w-10 h-10 rounded-full bg-black/50 hover:bg-white/20 flex items-center justify-center text-white transition-all border border-white/20">
                 <i className="fa-solid fa-xmark text-lg" />
             </button>
-            <div className="relative aspect-video bg-black/50 rounded-t-[2.5rem] overflow-hidden">
+
+            {/* Image – capped height */}
+            <div className="relative bg-black/50 rounded-t-[2.5rem] overflow-hidden shrink-0" style={{ maxHeight: '40vh' }}>
                 <img src={img.thumbnailUrl} alt={img.title} className="w-full h-full object-contain" />
                 {img.isAI && (
                     <span className="absolute top-4 left-4 px-3 py-1 bg-violet-600 rounded-lg text-[10px] font-black text-white uppercase">AI Generated</span>
                 )}
             </div>
-            <div className="p-8 space-y-6">
-                <h3 className="text-2xl font-black text-white leading-tight">{img.title}</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto min-h-0 p-8 space-y-5">
+                <h3 className="text-xl font-black text-white leading-tight">{img.title}</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
                     {([
                         ['Downloads', img.downloads],
                         ['Creator', `${img.creator}${img.creatorId ? ` (${img.creatorId})` : ''}`],
@@ -62,26 +67,28 @@ const ImageDetailModal: React.FC<{
                         </div>
                     </div>
                 )}
-                <div className="flex gap-3 pt-4 border-t border-white/5">
-                    <button
-                        onClick={onToggle}
-                        className={`flex-1 px-6 py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${selected
-                            ? 'bg-pink-500/20 text-pink-400 border-2 border-pink-500'
-                            : 'bg-[#161d2f] text-slate-300 border-2 border-white/10 hover:border-pink-500/50'
-                            }`}
-                    >
-                        <i className={`fa-solid ${selected ? 'fa-check-circle' : 'fa-circle'} mr-2`} />
-                        {selected ? 'Selected' : 'Select'}
-                    </button>
-                    <button
-                        onClick={onClone}
-                        disabled={cloning}
-                        className="flex-1 px-6 py-3.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 disabled:opacity-50 rounded-xl font-black text-xs uppercase tracking-widest text-white shadow-lg shadow-pink-500/20 transition-all"
-                    >
-                        <i className="fa-solid fa-dna mr-2" />
-                        Clone This
-                    </button>
-                </div>
+            </div>
+
+            {/* Action buttons – always pinned at bottom */}
+            <div className="shrink-0 px-8 pb-8 pt-4 border-t border-white/5 bg-[#0d1425] rounded-b-[2.5rem] flex gap-3">
+                <button
+                    onClick={onToggle}
+                    className={`flex-1 px-6 py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${selected
+                        ? 'bg-pink-500/20 text-pink-400 border-2 border-pink-500'
+                        : 'bg-[#161d2f] text-slate-300 border-2 border-white/10 hover:border-pink-500/50'
+                        }`}
+                >
+                    <i className={`fa-solid ${selected ? 'fa-check-circle' : 'fa-circle'} mr-2`} />
+                    {selected ? 'Selected' : 'Select'}
+                </button>
+                <button
+                    onClick={onClone}
+                    disabled={cloning}
+                    className="flex-1 px-6 py-3.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 disabled:opacity-50 rounded-xl font-black text-xs uppercase tracking-widest text-white shadow-lg shadow-pink-500/20 transition-all"
+                >
+                    <i className="fa-solid fa-dna mr-2" />
+                    Clone This
+                </button>
             </div>
         </div>
     </div>
