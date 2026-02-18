@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { StockInsight, ImagePrompt, ScanConfig, ContentTypeFilter } from '../types';
 import { searchTrackAdobeMultiplePages } from '../services/trackAdobeService';
 import ScanConfigModal from './ScanConfigModal';
+import Portal from './Portal';
 
 interface CloningModeProps {
     onPromptsGenerated: (prompts: ImagePrompt[]) => void;
@@ -18,8 +19,9 @@ const ImageDetailModal: React.FC<{
     onClone: () => void;
     cloning: boolean;
 }> = ({ img, onClose, selected, onToggle, onClone, cloning }) => (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+    <Portal>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
         <div
             className="relative bg-[#0d1425] rounded-[2.5rem] border border-white/10 shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden"
             onClick={e => e.stopPropagation()}
@@ -91,7 +93,8 @@ const ImageDetailModal: React.FC<{
                 </button>
             </div>
         </div>
-    </div>
+        </div>
+    </Portal>
 );
 
 

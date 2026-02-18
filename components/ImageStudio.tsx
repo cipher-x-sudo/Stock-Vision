@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { ImagePrompt } from '../types';
 import { generateImageFromPrompt, upscaleImage, generateVideoFromImage, getBatchHistory, loadBatch } from '../services/imageGenService';
 import type { GenerationSettings, HistoryBatch } from '../services/imageGenService';
+import Portal from './Portal';
 
 const ASPECT_RATIOS = [
     { value: '', label: 'Auto' },
@@ -736,30 +737,33 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
             {/* Zoom Modal */}
             {
                 zoomedImage && (
-                    <div
-                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-8 cursor-pointer"
-                        onClick={() => setZoomedImage(null)}
-                    >
-                        <img
-                            src={zoomedImage}
-                            alt="Zoomed"
-                            className="max-w-full max-h-full rounded-2xl shadow-2xl"
-                            onClick={(e) => e.stopPropagation()}
-                        />
-                        <button
+                    <Portal>
+                        <div
+                            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-8 cursor-pointer"
                             onClick={() => setZoomedImage(null)}
-                            className="absolute top-6 right-6 w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all"
                         >
-                            <i className="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
+                            <img
+                                src={zoomedImage}
+                                alt="Zoomed"
+                                className="max-w-full max-h-full rounded-2xl shadow-2xl"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                            <button
+                                onClick={() => setZoomedImage(null)}
+                                className="absolute top-6 right-6 w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all"
+                            >
+                                <i className="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                    </Portal>
                 )
             }
 
             {/* History Modal */}
             {historyOpen && (
-                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-8">
-                    <div className="bg-[#0d1425] rounded-[2.5rem] border border-white/5 shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+                <Portal>
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-8">
+                        <div className="bg-[#0d1425] rounded-[2.5rem] border border-white/5 shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
                         <div className="p-8 border-b border-white/5 flex items-center justify-between">
                             <h3 className="text-2xl font-black uppercase tracking-widest text-white">
                                 <i className="fa-solid fa-clock-rotate-left text-sky-400 mr-3"></i>
@@ -804,6 +808,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                         </div>
                     </div>
                 </div>
+                </Portal>
             )}
         </div >
     );

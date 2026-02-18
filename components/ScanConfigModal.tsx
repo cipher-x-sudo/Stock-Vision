@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ScanConfig, ContentTypeFilter, SortOrder } from '../types';
+import Portal from './Portal';
 
 interface ScanConfigModalProps {
     eventName: string;
@@ -55,12 +56,13 @@ const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm,
     };
 
     return (
-        <div
-            ref={backdropRef}
-            onClick={handleBackdropClick}
-            className="fixed inset-0 z-[100] flex items-center justify-center px-4"
-            style={{ backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
-        >
+        <Portal>
+            <div
+                ref={backdropRef}
+                onClick={handleBackdropClick}
+                className="fixed inset-0 z-[100] flex items-center justify-center px-4"
+                style={{ backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
+            >
             <div
                 className="w-full max-w-lg rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden"
                 style={{ background: 'rgba(15,23,42,0.95)', backdropFilter: 'blur(24px)' }}
@@ -228,6 +230,7 @@ const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm,
                 </div>
             </div>
         </div>
+        </Portal>
     );
 };
 
