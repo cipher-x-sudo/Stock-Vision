@@ -148,7 +148,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             setStatus(`Scanning pages ${startPage}–${endPage}...`);
             const res = await searchTrackAdobeMultiplePages(
                 query, startPage, endPage,
-                config.aiOnly, config.contentType
+                config.aiOnly, config.contentType, config.order
             );
 
             let images = res.images;
@@ -177,7 +177,8 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
 
             setResults(images);
             const pageRange = startPage === endPage ? `page ${startPage}` : `pages ${startPage}–${endPage}`;
-            setSearchInfo(`${images.length} results from ${pageRange} · ${config.aiOnly ? 'AI only' : 'All'} · ${config.contentType} · ≥${config.minDownloads} DLs`);
+            const sortLabel = config.order === 'nb_downloads' ? 'Downloads' : config.order === 'creation' ? 'Newest' : config.order === 'featured' ? 'Featured' : 'Relevance';
+            setSearchInfo(`${images.length} results from ${pageRange} · ${sortLabel} · ${config.aiOnly ? 'AI only' : 'All'} · ${config.contentType} · ≥${config.minDownloads} DLs`);
         } catch (err: any) {
             setError("Search failed: " + err.message);
         } finally {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ScanConfig, ContentTypeFilter } from '../types';
+import { ScanConfig, ContentTypeFilter, SortOrder } from '../types';
 
 interface ScanConfigModalProps {
     eventName: string;
@@ -17,6 +17,13 @@ const CONTENT_TYPES: { value: ContentTypeFilter; label: string; icon: string }[]
     { value: 'illustration', label: 'Illustration', icon: 'fa-paintbrush' },
 ];
 
+const SORT_OPTIONS: { value: SortOrder; label: string; icon: string }[] = [
+    { value: 'relevance', label: 'Relevance', icon: 'fa-bullseye' },
+    { value: 'nb_downloads', label: 'Most Downloads', icon: 'fa-download' },
+    { value: 'creation', label: 'Newest', icon: 'fa-clock' },
+    { value: 'featured', label: 'Featured', icon: 'fa-star' },
+];
+
 const currentYear = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: currentYear - 2014 }, (_, i) => currentYear - i);
 
@@ -26,6 +33,7 @@ const DEFAULT_CONFIG: ScanConfig = {
     yearTo: null,
     aiOnly: true,
     contentType: 'all',
+    order: 'relevance',
     startPage: 1,
     endPage: 3,
 };
@@ -69,6 +77,26 @@ const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm,
                 </div>
 
                 <div className="px-8 pb-8 space-y-6">
+                    {/* Sort Order */}
+                    <div>
+                        <label className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3 block">Sort Order</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {SORT_OPTIONS.map((opt) => (
+                                <button
+                                    key={opt.value}
+                                    onClick={() => setConfig((c) => ({ ...c, order: opt.value }))}
+                                    className={`px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all border ${config.order === opt.value
+                                        ? 'bg-sky-500/20 border-sky-500/60 text-sky-300 shadow-lg shadow-sky-500/10'
+                                        : 'bg-slate-800/60 border-white/5 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                                        }`}
+                                >
+                                    <i className={`fa-solid ${opt.icon} text-[11px]`}></i>
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Content Type */}
                     <div>
                         <label className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3 block">Asset Type</label>

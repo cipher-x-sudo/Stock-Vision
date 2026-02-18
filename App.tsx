@@ -102,7 +102,7 @@ const App: React.FC = () => {
         setStatus("Market Check: Querying TrackAdobe (1 page per keyword)...");
         try {
           for (const keyword of keywords) {
-            const trackResult = await searchTrackAdobe(keyword, 1, aiOnly, contentType);
+            const trackResult = await searchTrackAdobe(keyword, 1, aiOnly, contentType, config?.order);
             images = images.concat(trackResult.images);
           }
           images = images.filter((img) => withDownloads(img.downloads) >= minDl);
@@ -119,7 +119,8 @@ const App: React.FC = () => {
             config?.startPage || 1,
             config?.endPage || 3,
             aiOnly,
-            contentType
+            contentType,
+            config?.order
           );
           images = trackResult.images;
           images = images.filter((img) => withDownloads(img.downloads) >= minDl);

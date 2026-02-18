@@ -92,12 +92,16 @@ export interface ImagePrompt {
 
 export type ContentTypeFilter = 'all' | 'photo' | 'video' | 'vector' | 'illustration';
 
+
+export type SortOrder = 'relevance' | 'nb_downloads' | 'creation' | 'featured';
+
 export interface ScanConfig {
   minDownloads: number;
   yearFrom: number | null;
   yearTo: number | null;
   aiOnly: boolean;
   contentType: ContentTypeFilter;
+  order: SortOrder;
   startPage?: number;
   endPage?: number;
 }

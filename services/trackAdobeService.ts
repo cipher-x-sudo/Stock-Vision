@@ -1,4 +1,4 @@
-import { StockInsight, ContentTypeFilter } from "../types";
+import { StockInsight, ContentTypeFilter, SortOrder } from "../types";
 
 const PROXY_BASE = "https://api.allorigins.win/get?url=";
 
@@ -44,11 +44,13 @@ export const searchTrackAdobe = async (
   query: string,
   page: number = 1,
   aiOnly: boolean = false,
-  contentType: ContentTypeFilter = 'all'
+  contentType: ContentTypeFilter = 'all',
+  order: SortOrder = 'relevance'
 ): Promise<{ images: StockInsight[]; usage: any }> => {
   const base = API_BASE ? API_BASE.replace(/\/$/, "") : "";
   let backendUrl = `${base}/api/track-adobe?q=${encodeURIComponent(query)}&page=${page}&ai_only=${aiOnly ? "1" : "0"}`;
   if (contentType && contentType !== 'all') backendUrl += `&content_type=${contentType}`;
+  if (order && order !== 'relevance') backendUrl += `&order=${order}`;
 
   try {
     const response = await fetch(backendUrl);
@@ -67,6 +69,7 @@ export const searchTrackAdobe = async (
   let targetUrl = `https://trackadobestock.com/search?q=${encodedQuery}`;
   if (aiOnly) targetUrl += "&generative_ai=only";
   if (contentType && contentType !== 'all') targetUrl += `&content_type=${contentType}`;
+  if (order && order !== 'relevance') targetUrl += `&order=${order}`;
   if (page > 1) targetUrl += `&page=${page}`;
   targetUrl += "&_rsc=1gn38";
   const proxyUrl = PROXY_BASE + encodeURIComponent(targetUrl);
@@ -113,12 +116,13 @@ export const searchTrackAdobeMultiplePages = async (
   startPage: number = 1,
   endPage: number = 3,
   aiOnly: boolean = true,
-  contentType: ContentTypeFilter = 'all'
+  contentType: ContentTypeFilter = 'all',
+  order: SortOrder = 'relevance'
 ): Promise<{ images: StockInsight[]; usage: any }> => {
   const allImages: StockInsight[] = [];
   let usage: any = {};
   for (let page = startPage; page <= endPage; page++) {
-    const result = await searchTrackAdobe(query, page, aiOnly, contentType);
+    const result = await searchTrackAdobe(query, page, aiOnly, contentType, order);
     allImages.push(...result.images);
     if (result.usage && Object.keys(result.usage).length) usage = result.usage;
     // Break if no results found, unless it's just a gap (though usually empty means end of results)

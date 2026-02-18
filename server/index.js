@@ -171,11 +171,13 @@ app.get("/api/track-adobe", async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const aiOnly = req.query.ai_only === "1" || req.query.ai_only === "true";
   const contentType = req.query.content_type; // photo, video, vector, illustration
+  const order = req.query.order; // relevance, nb_downloads, creation, featured
 
   const encodedQuery = encodeURIComponent(q);
   let url = `https://trackadobestock.com/search?q=${encodedQuery}`;
   if (aiOnly) url += "&generative_ai=only";
   if (contentType && contentType !== 'all') url += `&content_type=${contentType}`;
+  if (order && order !== 'relevance') url += `&order=${order}`;
   if (page > 1) url += `&page=${page}`;
   url += "&_rsc=1gn38";
 
