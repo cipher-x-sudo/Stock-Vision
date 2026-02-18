@@ -1085,9 +1085,11 @@ app.post("/api/generate-cloning-prompts", async (req, res) => {
     }
 
     const results = [];
+    const delayMs = 500;
 
-    // Process each image (limit to 5 to avoid timeouts/rate limits)
-    for (const img of images.slice(0, 5)) {
+    // Process each image (no cap; delay between calls to respect rate limits)
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
       try {
         // 1. Fetch image data
         const imgRes = await fetch(img.url);
@@ -1127,6 +1129,10 @@ app.post("/api/generate-cloning-prompts", async (req, res) => {
         const promptData = JSON.parse(response.text || "{}");
         results.push(normalizeImagePrompt(promptData));
 
+        // Delay between API calls to respect Gemini rate limits
+        if (i < images.length - 1) {
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
       } catch (innerErr) {
         console.error(`Failed to clone image ${img.id}:`, innerErr.message);
         // Optionally push a fallback or error placeholder

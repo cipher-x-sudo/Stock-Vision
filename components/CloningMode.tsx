@@ -236,26 +236,27 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     // ── Clone ─────────────────────────────────────────────────
     const handleClone = useCallback(async (imagesToClone: StockInsight[]) => {
         if (imagesToClone.length === 0) return;
-        const cloneSlice = imagesToClone.slice(0, 5);
+        const total = imagesToClone.length;
         setCloning(true);
         setError(null);
         setSuccessMsg('');
-        setCloningProgress({ current: 0, total: cloneSlice.length });
-        setStatus(`Analyzing ${cloneSlice.length} image${cloneSlice.length > 1 ? 's' : ''} with Vision AI...`);
+        setCloningProgress({ current: 0, total });
+        setStatus(`Analyzing ${total} image${total > 1 ? 's' : ''} with Vision AI...`);
 
         try {
-            const payload = cloneSlice.map(img => ({
+            const payload = imagesToClone.map(img => ({
                 url: img.thumbnailUrl,
                 title: img.title,
                 id: img.id
             }));
 
+            const tickMs = total <= 5 ? 3000 : Math.max(1500, 8000 / total);
             let progressIdx = 0;
             const progressInterval = setInterval(() => {
-                progressIdx = Math.min(progressIdx + 1, cloneSlice.length);
-                setCloningProgress({ current: progressIdx, total: cloneSlice.length });
-                setStatus(`Analyzing image ${progressIdx} of ${cloneSlice.length}...`);
-            }, 3000);
+                progressIdx = Math.min(progressIdx + 1, total);
+                setCloningProgress({ current: progressIdx, total });
+                setStatus(`Analyzing image ${progressIdx} of ${total}...`);
+            }, tickMs);
 
             const response = await fetch(`${(import.meta as any).env?.VITE_API_URL || ''}/api/generate-cloning-prompts`, {
                 method: 'POST',
@@ -264,7 +265,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             });
 
             clearInterval(progressInterval);
-            setCloningProgress({ current: cloneSlice.length, total: cloneSlice.length });
+            setCloningProgress({ current: total, total });
 
             if (!response.ok) {
                 const err = await response.json();
@@ -467,6 +468,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                             >
                                 <i className="fa-solid fa-layer-group mr-1.5" /> Top 5
                             </button>
+                            <button
+                                onClick={() => handleClone(sortedResults)}
+                                disabled={cloning || sortedResults.length < 2}
+                                className="px-5 py-2.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 disabled:opacity-40 rounded-xl font-black text-[10px] uppercase tracking-widest text-white shadow-lg shadow-pink-500/20 transition-all"
+                            >
+                                <i className="fa-solid fa-clone mr-1.5" /> Clone All ({sortedResults.length})
+                            </button>
                         </div>
                     </div>
 
@@ -585,7 +593,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     {selectedIds.size} image{selectedIds.size > 1 ? 's' : ''} selected
                                 </p>
                                 <p className="text-slate-500 text-[10px] font-bold">
-                                    {selectedIds.size > 5 ? 'Only first 5 will be processed (API limit)' : 'Ready to clone'}
+                                    Ready to clone
                                 </p>
                             </div>
                             <button
@@ -599,7 +607,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 className="px-8 py-3.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 rounded-[1.5rem] font-black text-sm uppercase tracking-widest text-white shadow-lg shadow-pink-500/30 transition-all active:scale-95 flex items-center gap-2"
                             >
                                 <i className="fa-solid fa-dna" />
-                                Clone {Math.min(selectedIds.size, 5)}
+                                Clone {selectedIds.size}
                             </button>
                         </div>
                     </div>
