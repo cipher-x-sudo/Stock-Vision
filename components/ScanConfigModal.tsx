@@ -100,14 +100,16 @@ const ScanConfigModal: React.FC<ScanConfigModalProps> = ({ eventName, onConfirm,
                     {/* Content Type */}
                     <div>
                         <label className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3 block">Asset Type</label>
-                        <div className="flex flex-wrap gap-2">
-                            {CONTENT_TYPES.map((ct) => (
+                        <div className="grid grid-cols-6 gap-2">
+                            {CONTENT_TYPES.map((ct, idx) => (
                                 <button
                                     key={ct.value}
                                     onClick={() => setConfig((c) => ({ ...c, contentType: ct.value }))}
-                                    className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all border ${config.contentType === ct.value
-                                        ? 'bg-sky-500/20 border-sky-500/60 text-sky-300 shadow-lg shadow-sky-500/10'
-                                        : 'bg-slate-800/60 border-white/5 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                                    className={`
+                                        ${idx < 3 ? 'col-span-2' : 'col-span-3'}
+                                        px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all border ${config.contentType === ct.value
+                                            ? 'bg-sky-500/20 border-sky-500/60 text-sky-300 shadow-lg shadow-sky-500/10'
+                                            : 'bg-slate-800/60 border-white/5 text-slate-400 hover:border-white/20 hover:text-slate-200'
                                         }`}
                                 >
                                     <i className={`fa-solid ${ct.icon} text-[11px]`}></i>
