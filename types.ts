@@ -142,3 +142,15 @@ export interface Creator {
   name: string;
   avatar?: string;
 }
+
+export interface GeneratedImage {
+  prompt: ImagePrompt;
+  dataUrl: string | null;
+  upscaledUrl: string | null;
+  status: 'idle' | 'generating' | 'done' | 'error';
+  upscaleStatus: 'idle' | 'upscaling' | 'done' | 'error';
+  error?: string;
+  videoUrl?: string;
+  videoStatus: 'idle' | 'planning' | 'generating' | 'done' | 'error';
+  videoPlan?: any;
+}

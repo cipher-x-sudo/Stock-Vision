@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import type { ImagePrompt } from '../types';
+import type { ImagePrompt, GeneratedImage } from '../types';
 import { generateImageFromPrompt, upscaleImage, generateVideoFromImage, getBatchHistory, loadBatch } from '../services/imageGenService';
 import type { GenerationSettings, HistoryBatch } from '../services/imageGenService';
 import Portal from './Portal';
@@ -23,18 +23,6 @@ const RESOLUTIONS = [
     { value: '2K', label: '2K' },
     { value: '4K', label: '4K Ultra HD' },
 ];
-
-interface GeneratedImage {
-    prompt: ImagePrompt;
-    dataUrl: string | null;
-    upscaledUrl: string | null;
-    status: 'idle' | 'generating' | 'done' | 'error';
-    upscaleStatus: 'idle' | 'upscaling' | 'done' | 'error';
-    error?: string;
-    videoUrl?: string;
-    videoStatus: 'idle' | 'planning' | 'generating' | 'done' | 'error';
-    videoPlan?: any;
-}
 
 interface ImageStudioProps {
     sessionPrompts: ImagePrompt[];
@@ -764,50 +752,50 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                 <Portal>
                     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-8">
                         <div className="bg-[#0d1425] rounded-[2.5rem] border border-white/5 shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-                        <div className="p-8 border-b border-white/5 flex items-center justify-between">
-                            <h3 className="text-2xl font-black uppercase tracking-widest text-white">
-                                <i className="fa-solid fa-clock-rotate-left text-sky-400 mr-3"></i>
-                                History
-                            </h3>
-                            <button
-                                onClick={() => setHistoryOpen(false)}
-                                className="w-10 h-10 bg-[#161d2f] rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#1e2a4a] transition-all"
-                            >
-                                <i className="fa-solid fa-xmark"></i>
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-8 space-y-4">
-                            {historyBatches.length === 0 ? (
-                                <div className="text-center py-12 text-slate-500">
-                                    <i className="fa-solid fa-box-open text-4xl mb-4 opacity-50"></i>
-                                    <p>No history found</p>
-                                </div>
-                            ) : (
-                                historyBatches.map(batch => (
-                                    <div key={batch.filename} className="bg-[#161d2f] p-6 rounded-2xl border border-white/5 flex items-center justify-between group hover:border-sky-500/30 transition-all">
-                                        <div>
-                                            <div className="text-sky-400 font-bold text-xs uppercase tracking-widest mb-1">
-                                                {new Date(batch.date).toLocaleString()}
-                                            </div>
-                                            <div className="text-white font-black text-lg">
-                                                {batch.count} Prompts
-                                            </div>
-                                            <div className="text-slate-500 text-xs font-mono mt-1">
-                                                {batch.filename}
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => loadHistoryBatch(batch.filename)}
-                                            className="px-6 py-3 bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500 text-sky-400 hover:text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all"
-                                        >
-                                            Load <i className="fa-solid fa-download ml-2"></i>
-                                        </button>
+                            <div className="p-8 border-b border-white/5 flex items-center justify-between">
+                                <h3 className="text-2xl font-black uppercase tracking-widest text-white">
+                                    <i className="fa-solid fa-clock-rotate-left text-sky-400 mr-3"></i>
+                                    History
+                                </h3>
+                                <button
+                                    onClick={() => setHistoryOpen(false)}
+                                    className="w-10 h-10 bg-[#161d2f] rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#1e2a4a] transition-all"
+                                >
+                                    <i className="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-8 space-y-4">
+                                {historyBatches.length === 0 ? (
+                                    <div className="text-center py-12 text-slate-500">
+                                        <i className="fa-solid fa-box-open text-4xl mb-4 opacity-50"></i>
+                                        <p>No history found</p>
                                     </div>
-                                ))
-                            )}
+                                ) : (
+                                    historyBatches.map(batch => (
+                                        <div key={batch.filename} className="bg-[#161d2f] p-6 rounded-2xl border border-white/5 flex items-center justify-between group hover:border-sky-500/30 transition-all">
+                                            <div>
+                                                <div className="text-sky-400 font-bold text-xs uppercase tracking-widest mb-1">
+                                                    {new Date(batch.date).toLocaleString()}
+                                                </div>
+                                                <div className="text-white font-black text-lg">
+                                                    {batch.count} Prompts
+                                                </div>
+                                                <div className="text-slate-500 text-xs font-mono mt-1">
+                                                    {batch.filename}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => loadHistoryBatch(batch.filename)}
+                                                className="px-6 py-3 bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500 text-sky-400 hover:text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+                                            >
+                                                Load <i className="fa-solid fa-download ml-2"></i>
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
                 </Portal>
             )}
         </div >
