@@ -37,6 +37,15 @@ const BATCHES_DIR = path.join(STORAGE_DIR, "batches");
   }
 });
 
+const FAVORITES_DIR = path.join(STORAGE_DIR, "favorites");
+if (!fs.existsSync(FAVORITES_DIR)) {
+  fs.mkdirSync(FAVORITES_DIR, { recursive: true });
+}
+const FAV_CONTRIBUTORS_FILE = path.join(FAVORITES_DIR, "contributors.json");
+if (!fs.existsSync(FAV_CONTRIBUTORS_FILE)) {
+  fs.writeFileSync(FAV_CONTRIBUTORS_FILE, JSON.stringify([]));
+}
+
 // Serve storage statically
 app.use("/api/storage", express.static(STORAGE_DIR));
 
@@ -210,6 +219,96 @@ app.get("/api/track-adobe", async (req, res) => {
       error: "TrackAdobe proxy error",
       message: err.message,
     });
+  }
+});
+
+app.get("/api/track-contributor", async (req, res) => {
+  const cookieHeader = getCookieHeader();
+  if (!cookieHeader) {
+    res.status(503).json({
+      error: "TrackAdobe auth not configured",
+    });
+    return;
+  }
+
+  const q = req.query.q;
+  if (!q) {
+    res.status(400).json({ error: "Missing query parameter: q" });
+    return;
+  }
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const aiOnly = req.query.ai_only === "1" || req.query.ai_only === "true";
+  const contentType = req.query.content_type;
+  const order = req.query.order;
+
+  const encodedQuery = encodeURIComponent(q);
+  let url = `https://trackadobestock.com/contributor?search=${encodedQuery}`;
+  if (aiOnly) url += "&generative_ai=only";
+  if (contentType && contentType !== 'all') url += `&content_type=${contentType}`;
+  if (order && order !== 'relevance') url += `&order=${order}`;
+  if (page > 1) url += `&page=${page}`;
+  url += "&_rsc=1gn38";
+
+  const headers = { ...TRACK_HEADERS, cookie: cookieHeader };
+
+  try {
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      res.status(response.status).json({
+        error: "TrackAdobe request failed",
+        status: response.status,
+      });
+      return;
+    }
+    const content = await response.text();
+    const data = parseRscResponse(content);
+    if (!data) {
+      res.json({ images: [], usage: {} });
+      return;
+    }
+    let images = mapImages(data);
+    if (aiOnly && images.length > 0) {
+      const aiFiltered = images.filter((img) => img.isAI === true);
+      if (aiFiltered.length > 0) images = aiFiltered;
+    }
+    res.json({ images, usage: data.usageData || {} });
+  } catch (err) {
+    console.error("TrackAdobe contributor proxy error:", err);
+    res.status(502).json({
+      error: "TrackAdobe proxy error",
+      message: err.message,
+    });
+  }
+});
+
+app.get("/api/favorites/contributors", (req, res) => {
+  try {
+    const data = JSON.parse(fs.readFileSync(FAV_CONTRIBUTORS_FILE, 'utf8'));
+    res.json({ contributors: data });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to read favorites" });
+  }
+});
+
+app.post("/api/favorites/contributors", (req, res) => {
+  const creator = req.body;
+  if (!creator || !creator.id) {
+    return res.status(400).json({ error: "Invalid creator" });
+  }
+
+  try {
+    let favorites = JSON.parse(fs.readFileSync(FAV_CONTRIBUTORS_FILE, 'utf8'));
+    const index = favorites.findIndex(f => f.id === creator.id);
+    if (index > -1) {
+      favorites.splice(index, 1);
+      res.json({ success: true, action: "removed", contributors: favorites });
+    } else {
+      favorites.push(creator);
+      res.json({ success: true, action: "added", contributors: favorites });
+    }
+    fs.writeFileSync(FAV_CONTRIBUTORS_FILE, JSON.stringify(favorites, null, 2));
+  } catch (e) {
+    res.status(500).json({ error: "Failed to update favorites" });
   }
 });
 

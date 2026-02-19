@@ -1,6 +1,11 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import { StockInsight, ImagePrompt, ScanConfig, ContentTypeFilter } from '../types';
-import { searchTrackAdobeMultiplePages } from '../services/trackAdobeService';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { StockInsight, ImagePrompt, ScanConfig, ContentTypeFilter, Creator } from '../types';
+import {
+    searchTrackAdobeMultiplePages,
+    searchTrackContributorMultiplePages,
+    getFavoriteContributors,
+    toggleFavoriteContributor
+} from '../services/trackAdobeService';
 import ScanConfigModal from './ScanConfigModal';
 import Portal from './Portal';
 
@@ -22,77 +27,77 @@ const ImageDetailModal: React.FC<{
     <Portal>
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-        <div
-            className="relative bg-[#0d1425] rounded-[2.5rem] border border-white/10 shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden"
-            onClick={e => e.stopPropagation()}
-        >
-            {/* Close button – always visible */}
-            <button onClick={onClose} className="absolute top-5 right-5 z-20 w-10 h-10 rounded-full bg-black/50 hover:bg-white/20 flex items-center justify-center text-white transition-all border border-white/20">
-                <i className="fa-solid fa-xmark text-lg" />
-            </button>
+            <div
+                className="relative bg-[#0d1425] rounded-[2.5rem] border border-white/10 shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+                onClick={e => e.stopPropagation()}
+            >
+                {/* Close button – always visible */}
+                <button onClick={onClose} className="absolute top-5 right-5 z-20 w-10 h-10 rounded-full bg-black/50 hover:bg-white/20 flex items-center justify-center text-white transition-all border border-white/20">
+                    <i className="fa-solid fa-xmark text-lg" />
+                </button>
 
-            {/* Image – capped height */}
-            <div className="relative bg-black/50 rounded-t-[2.5rem] overflow-hidden shrink-0" style={{ maxHeight: '40vh' }}>
-                <img src={img.thumbnailUrl} alt={img.title} className="w-full h-full object-contain" />
-                {img.isAI && (
-                    <span className="absolute top-4 left-4 px-3 py-1 bg-violet-600 rounded-lg text-[10px] font-black text-white uppercase">AI Generated</span>
-                )}
-            </div>
-
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto min-h-0 p-8 space-y-5">
-                <h3 className="text-xl font-black text-white leading-tight">{img.title}</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                    {([
-                        ['Downloads', img.downloads],
-                        ['Creator', `${img.creator}${img.creatorId ? ` (${img.creatorId})` : ''}`],
-                        ['Media Type', img.mediaType],
-                        ['Category', img.category || '—'],
-                        ['Content Type', img.contentType || '—'],
-                        ['Dimensions', img.dimensions || '—'],
-                        ['Upload Date', img.uploadDate ? String(img.uploadDate).slice(0, 10) : '—'],
-                        ['Premium', img.premium || '—'],
-                    ] as [string, string | number][]).map(([label, value]) => (
-                        <div key={label} className="flex flex-col gap-1 p-3 bg-[#161d2f] rounded-xl border border-white/5">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</span>
-                            <span className="text-slate-200 font-medium truncate">{value}</span>
-                        </div>
-                    ))}
+                {/* Image – capped height */}
+                <div className="relative bg-black/50 rounded-t-[2.5rem] overflow-hidden shrink-0" style={{ maxHeight: '40vh' }}>
+                    <img src={img.thumbnailUrl} alt={img.title} className="w-full h-full object-contain" />
+                    {img.isAI && (
+                        <span className="absolute top-4 left-4 px-3 py-1 bg-violet-600 rounded-lg text-[10px] font-black text-white uppercase">AI Generated</span>
+                    )}
                 </div>
-                {Array.isArray(img.keywords) && img.keywords.length > 0 && (
-                    <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Keywords</p>
-                        <div className="flex flex-wrap gap-1.5">
-                            {img.keywords.map((kw, i) => (
-                                <span key={i} className="px-2.5 py-1 bg-[#161d2f] text-slate-300 rounded-lg text-xs border border-white/5">{kw}</span>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
 
-            {/* Action buttons – always pinned at bottom */}
-            <div className="shrink-0 px-8 pb-8 pt-4 border-t border-white/5 bg-[#0d1425] rounded-b-[2.5rem] flex gap-3">
-                <button
-                    onClick={onToggle}
-                    className={`flex-1 px-6 py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${selected
-                        ? 'bg-pink-500/20 text-pink-400 border-2 border-pink-500'
-                        : 'bg-[#161d2f] text-slate-300 border-2 border-white/10 hover:border-pink-500/50'
-                        }`}
-                >
-                    <i className={`fa-solid ${selected ? 'fa-check-circle' : 'fa-circle'} mr-2`} />
-                    {selected ? 'Selected' : 'Select'}
-                </button>
-                <button
-                    onClick={onClone}
-                    disabled={cloning}
-                    className="flex-1 px-6 py-3.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 disabled:opacity-50 rounded-xl font-black text-xs uppercase tracking-widest text-white shadow-lg shadow-pink-500/20 transition-all"
-                >
-                    <i className="fa-solid fa-dna mr-2" />
-                    Clone This
-                </button>
+                {/* Scrollable content */}
+                <div className="flex-1 overflow-y-auto min-h-0 p-8 space-y-5">
+                    <h3 className="text-xl font-black text-white leading-tight">{img.title}</h3>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                        {([
+                            ['Downloads', img.downloads],
+                            ['Creator', `${img.creator}${img.creatorId ? ` (${img.creatorId})` : ''}`],
+                            ['Media Type', img.mediaType],
+                            ['Category', img.category || '—'],
+                            ['Content Type', img.contentType || '—'],
+                            ['Dimensions', img.dimensions || '—'],
+                            ['Upload Date', img.uploadDate ? String(img.uploadDate).slice(0, 10) : '—'],
+                            ['Premium', img.premium || '—'],
+                        ] as [string, string | number][]).map(([label, value]) => (
+                            <div key={label} className="flex flex-col gap-1 p-3 bg-[#161d2f] rounded-xl border border-white/5">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</span>
+                                <span className="text-slate-200 font-medium truncate">{value}</span>
+                            </div>
+                        ))}
+                    </div>
+                    {Array.isArray(img.keywords) && img.keywords.length > 0 && (
+                        <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Keywords</p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {img.keywords.map((kw, i) => (
+                                    <span key={i} className="px-2.5 py-1 bg-[#161d2f] text-slate-300 rounded-lg text-xs border border-white/5">{kw}</span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Action buttons – always pinned at bottom */}
+                <div className="shrink-0 px-8 pb-8 pt-4 border-t border-white/5 bg-[#0d1425] rounded-b-[2.5rem] flex gap-3">
+                    <button
+                        onClick={onToggle}
+                        className={`flex-1 px-6 py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${selected
+                            ? 'bg-pink-500/20 text-pink-400 border-2 border-pink-500'
+                            : 'bg-[#161d2f] text-slate-300 border-2 border-white/10 hover:border-pink-500/50'
+                            }`}
+                    >
+                        <i className={`fa-solid ${selected ? 'fa-check-circle' : 'fa-circle'} mr-2`} />
+                        {selected ? 'Selected' : 'Select'}
+                    </button>
+                    <button
+                        onClick={onClone}
+                        disabled={cloning}
+                        className="flex-1 px-6 py-3.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 disabled:opacity-50 rounded-xl font-black text-xs uppercase tracking-widest text-white shadow-lg shadow-pink-500/20 transition-all"
+                    >
+                        <i className="fa-solid fa-dna mr-2" />
+                        Clone This
+                    </button>
+                </div>
             </div>
-        </div>
         </div>
     </Portal>
 );
@@ -127,6 +132,19 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     // Modal state
     const [detailImage, setDetailImage] = useState<StockInsight | null>(null);
 
+    // Creator Cloning & Favorites
+    const [cloningType, setCloningType] = useState<'keyword' | 'creator'>('keyword');
+    const [favCreators, setFavCreators] = useState<Creator[]>([]);
+
+    useEffect(() => {
+        getFavoriteContributors().then(setFavCreators);
+    }, []);
+
+    const toggleFav = useCallback(async (creator: Creator) => {
+        const next = await toggleFavoriteContributor(creator);
+        setFavCreators(next);
+    }, []);
+
     // ── Open config modal before searching ─────────────────────
     const handleSearchClick = useCallback(() => {
         if (!query.trim()) return;
@@ -149,10 +167,15 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
 
         try {
             setStatus(`Scanning pages ${startPage}–${endPage}...`);
-            const res = await searchTrackAdobeMultiplePages(
-                query, startPage, endPage,
-                config.aiOnly, config.contentType, config.order
-            );
+            const res = cloningType === 'keyword'
+                ? await searchTrackAdobeMultiplePages(
+                    query, startPage, endPage,
+                    config.aiOnly, config.contentType, config.order
+                )
+                : await searchTrackContributorMultiplePages(
+                    query, startPage, endPage,
+                    config.aiOnly, config.contentType, config.order
+                );
 
             let images = res.images;
 
@@ -302,6 +325,32 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 </p>
             </div>
 
+            {/* ── Mode Toggle ────────────────────────────────── */}
+            <div className="flex justify-center mb-8">
+                <div className="bg-[#0d1425] p-1.5 rounded-2xl border-2 border-[#1a2333] flex gap-1">
+                    <button
+                        onClick={() => setCloningType('keyword')}
+                        className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${cloningType === 'keyword'
+                            ? 'bg-pink-600 text-white shadow-lg shadow-pink-500/30'
+                            : 'text-slate-500 hover:text-slate-300'
+                            }`}
+                    >
+                        <i className="fa-solid fa-magnifying-glass mr-2" />
+                        Keyword Cloning
+                    </button>
+                    <button
+                        onClick={() => setCloningType('creator')}
+                        className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${cloningType === 'creator'
+                            ? 'bg-pink-600 text-white shadow-lg shadow-pink-500/30'
+                            : 'text-slate-500 hover:text-slate-300'
+                            }`}
+                    >
+                        <i className="fa-solid fa-user-pen mr-2" />
+                        Creator Cloning
+                    </button>
+                </div>
+            </div>
+
             {/* ── Search Bar ─────────────────────────────────── */}
             <div className="max-w-3xl mx-auto relative group">
                 <div className="absolute inset-0 bg-pink-500/20 blur-3xl group-focus-within:bg-pink-500/40 transition-all rounded-full opacity-50" />
@@ -311,7 +360,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                     </div>
                     <input
                         type="text"
-                        placeholder="Search viral niche (e.g. 'cats', 'business', 'cyberpunk')..."
+                        placeholder={cloningType === 'keyword' ? "Search viral niche (e.g. 'cats', 'business', 'cyberpunk')..." : "Enter Contributor ID or Name (e.g. '210518839')..."}
                         className="flex-1 bg-transparent py-6 text-2xl outline-none font-semibold placeholder:text-slate-700 text-pink-100"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -326,6 +375,36 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                     </button>
                 </div>
             </div>
+
+            {/* ── Favorite Creators ────────────────────────────── */}
+            {cloningType === 'creator' && favCreators.length > 0 && !loading && results.length === 0 && (
+                <div className="max-w-3xl mx-auto space-y-4 animate-in fade-in slide-in-from-top duration-500">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Recently Saved Creators</h4>
+                    <div className="flex flex-wrap gap-3">
+                        {favCreators.map(creator => (
+                            <button
+                                key={creator.id}
+                                onClick={() => { setQuery(creator.id); setShowConfigModal(true); }}
+                                className="group relative px-6 py-4 bg-[#0d1425] border-2 border-[#1a2333] hover:border-pink-500/50 rounded-2xl transition-all flex items-center gap-4"
+                            >
+                                <div className="w-10 h-10 rounded-full bg-pink-500/10 flex items-center justify-center text-pink-500 font-black">
+                                    {creator.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="text-left">
+                                    <p className="text-white font-bold text-sm">{creator.name}</p>
+                                    <p className="text-slate-500 text-[10px] font-bold">ID: {creator.id}</p>
+                                </div>
+                                <div
+                                    onClick={(e) => { e.stopPropagation(); toggleFav(creator); }}
+                                    className="ml-2 w-8 h-8 rounded-lg bg-pink-500/10 group-hover:bg-pink-500 flex items-center justify-center text-pink-500 group-hover:text-white transition-all"
+                                >
+                                    <i className="fa-solid fa-heart text-xs" />
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* ── Last Config Info Badge ──────────────────────── */}
             {lastConfig && !loading && results.length > 0 && (
@@ -531,9 +610,19 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                         <i className="fa-solid fa-download mr-1" />{img.downloads}
                                                     </span>
                                                     {img.creator && (
-                                                        <span className="text-slate-500 text-[10px] truncate">
-                                                            <i className="fa-solid fa-user mr-1" />{img.creator}
-                                                        </span>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleFav({ id: img.creatorId || img.creator, name: img.creator });
+                                                            }}
+                                                            className={`flex items-center gap-1 text-[10px] font-bold transition-all ${favCreators.some(f => f.id === (img.creatorId || img.creator))
+                                                                    ? 'text-pink-500'
+                                                                    : 'text-slate-500 hover:text-pink-400'
+                                                                }`}
+                                                        >
+                                                            <i className={`fa-solid ${favCreators.some(f => f.id === (img.creatorId || img.creator)) ? 'fa-heart' : 'fa-user'} mr-1`} />
+                                                            {img.creator}
+                                                        </button>
                                                     )}
                                                 </div>
                                             </div>

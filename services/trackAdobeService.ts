@@ -1,4 +1,4 @@
-import { StockInsight, ContentTypeFilter, SortOrder } from "../types";
+import { StockInsight, ContentTypeFilter, SortOrder, Creator } from "../types";
 
 const PROXY_BASE = "https://api.allorigins.win/get?url=";
 
@@ -129,4 +129,91 @@ export const searchTrackAdobeMultiplePages = async (
     if (result.images.length === 0) break;
   }
   return { images: allImages, usage };
+};
+
+/**
+ * Search TrackAdobeStock for a specific contributor.
+ */
+export const searchTrackContributor = async (
+  query: string,
+  page: number = 1,
+  aiOnly: boolean = false,
+  contentType: ContentTypeFilter = 'all',
+  order: SortOrder = 'relevance'
+): Promise<{ images: StockInsight[]; usage: any }> => {
+  const base = API_BASE ? API_BASE.replace(/\/$/, "") : "";
+  let backendUrl = `${base}/api/track-contributor?q=${encodeURIComponent(query)}&page=${page}&ai_only=${aiOnly ? "1" : "0"}`;
+  if (contentType && contentType !== 'all') backendUrl += `&content_type=${contentType}`;
+  if (order && order !== 'relevance') backendUrl += `&order=${order}`;
+
+  try {
+    const response = await fetch(backendUrl);
+    if (response.ok) {
+      const json = await response.json();
+      return { images: json.images || [], usage: json.usage || {} };
+    }
+  } catch (error) {
+    console.error("TrackAdobe contributor search error:", error);
+  }
+  return { images: [], usage: {} };
+};
+
+/**
+ * Fetch results from a contributor across multiple pages.
+ */
+export const searchTrackContributorMultiplePages = async (
+  query: string,
+  startPage: number = 1,
+  endPage: number = 3,
+  aiOnly: boolean = true,
+  contentType: ContentTypeFilter = 'all',
+  order: SortOrder = 'relevance'
+): Promise<{ images: StockInsight[]; usage: any }> => {
+  const allImages: StockInsight[] = [];
+  let usage: any = {};
+  for (let page = startPage; page <= endPage; page++) {
+    const result = await searchTrackContributor(query, page, aiOnly, contentType, order);
+    allImages.push(...result.images);
+    if (result.usage && Object.keys(result.usage).length) usage = result.usage;
+    if (result.images.length === 0) break;
+  }
+  return { images: allImages, usage };
+};
+
+/**
+ * Fetch favorite contributors list.
+ */
+export const getFavoriteContributors = async (): Promise<Creator[]> => {
+  const base = API_BASE ? API_BASE.replace(/\/$/, "") : "";
+  try {
+    const res = await fetch(`${base}/api/favorites/contributors`);
+    if (res.ok) {
+      const data = await res.json();
+      return data.contributors || [];
+    }
+  } catch (e) {
+    console.error("Failed to fetch favorite contributors:", e);
+  }
+  return [];
+};
+
+/**
+ * Toggle contributor favorite status.
+ */
+export const toggleFavoriteContributor = async (creator: Creator): Promise<Creator[]> => {
+  const base = API_BASE ? API_BASE.replace(/\/$/, "") : "";
+  try {
+    const res = await fetch(`${base}/api/favorites/contributors`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(creator),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.contributors || [];
+    }
+  } catch (e) {
+    console.error("Failed to toggle favorite contributor:", e);
+  }
+  return [];
 };

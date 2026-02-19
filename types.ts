@@ -136,3 +136,9 @@ export interface StoredBatch {
   size?: number;
   count?: number;
 }
+
+export interface Creator {
+  id: string;
+  name: string;
+  avatar?: string;
+}
