@@ -67,10 +67,10 @@ const CsvCloningMode: React.FC<CsvCloningModeProps> = ({ onClone }) => {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-in fade-in zoom-in duration-500">
             {/* File Upload Section */}
             <div
-                className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors cursor-pointer bg-gray-50"
+                className="border-2 border-dashed border-[#1a2333] hover:border-pink-500/50 rounded-[2rem] p-12 text-center transition-all cursor-pointer bg-[#0d1425] group"
                 onClick={() => fileInputRef.current?.click()}
             >
                 <input
@@ -80,63 +80,71 @@ const CsvCloningMode: React.FC<CsvCloningModeProps> = ({ onClone }) => {
                     accept=".csv"
                     onChange={handleFileUpload}
                 />
-                <div className="text-gray-600">
-                    <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    <p className="text-lg font-medium">{fileName || "Click to upload CSV or drag and drop"}</p>
-                    <p className="text-sm text-gray-400 mt-2">Supports Adobe Stock CSV export format</p>
+                <div className="space-y-4">
+                    <div className="w-20 h-20 mx-auto bg-[#161d2f] rounded-full flex items-center justify-center border border-white/5 group-hover:scale-110 group-hover:border-pink-500/30 transition-all duration-300">
+                        <i className="fa-solid fa-cloud-arrow-up text-3xl text-slate-400 group-hover:text-pink-400 transition-colors" />
+                    </div>
+                    <div>
+                        <p className="text-xl font-black text-slate-200 uppercase tracking-wide">
+                            {fileName || "Click to upload CSV"}
+                        </p>
+                        {!fileName && <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">or drag and drop</p>}
+                        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
+                            Supports Adobe Stock CSV export format
+                        </p>
+                    </div>
                 </div>
             </div>
 
             {/* Data Table */}
             {data.length > 0 && (
-                <div className="bg-white rounded-lg shadow overflow-hidden">
-                    <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-                        <h3 className="text-lg font-semibold text-gray-800">
+                <div className="bg-[#0d1425] rounded-[2rem] border border-[#1a2333] overflow-hidden shadow-2xl">
+                    <div className="p-6 border-b border-white/5 flex justify-between items-center bg-[#161d2f]/50">
+                        <h3 className="text-lg font-black uppercase tracking-wider text-white flex items-center gap-3">
+                            <span className="w-8 h-8 rounded-lg bg-pink-500/20 flex items-center justify-center text-pink-400 text-xs">
+                                <i className="fa-solid fa-table-list" />
+                            </span>
                             Loaded {data.length} Assets
                         </h3>
                         <div className="flex items-center space-x-4">
-                            <span className="text-sm text-gray-500">
-                                {selectedIds.size} selected
+                            <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                                <span className="text-pink-400">{selectedIds.size}</span> selected
                             </span>
                             <button
                                 onClick={handleClone}
                                 disabled={selectedIds.size === 0}
-                                className={`px-4 py-2 rounded-lg text-white font-medium transition-colors ${selectedIds.size > 0
-                                        ? 'bg-blue-600 hover:bg-blue-700'
-                                        : 'bg-gray-300 cursor-not-allowed'
-                                    }`}
+                                className="px-6 py-2.5 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl font-black text-xs uppercase tracking-widest text-white shadow-lg shadow-pink-500/20 transition-all flex items-center gap-2"
                             >
+                                <i className="fa-solid fa-dna" />
                                 Clone Selected
                             </button>
                         </div>
                     </div>
 
                     <div className="overflow-x-auto max-h-[600px]">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50 sticky top-0 z-10">
+                        <table className="min-w-full divide-y divide-white/5">
+                            <thead className="bg-[#161d2f] sticky top-0 z-10">
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
+                                    <th className="px-6 py-4 text-left w-10">
                                         <input
                                             type="checkbox"
                                             checked={selectedIds.size === data.length && data.length > 0}
                                             onChange={toggleAll}
-                                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                            className="w-4 h-4 rounded border-white/10 bg-[#0d1425] text-pink-500 focus:ring-offset-[#0d1425] focus:ring-pink-500 cursor-pointer"
                                         />
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Preview</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Downloads</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Creator</th>
+                                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">Preview</th>
+                                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">ID</th>
+                                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">Title</th>
+                                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">Downloads</th>
+                                    <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">Creator</th>
                                 </tr>
                             </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
+                            <tbody className="divide-y divide-white/5 bg-transparent">
                                 {data.map((item) => (
                                     <tr
                                         key={item.id}
-                                        className={`hover:bg-gray-50 ${selectedIds.has(item.id) ? 'bg-blue-50' : ''}`}
+                                        className={`group transition-colors cursor-pointer ${selectedIds.has(item.id) ? 'bg-pink-500/10 hover:bg-pink-500/20' : 'hover:bg-white/5'}`}
                                         onClick={() => toggleSelection(item.id)}
                                     >
                                         <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -144,22 +152,24 @@ const CsvCloningMode: React.FC<CsvCloningModeProps> = ({ onClone }) => {
                                                 type="checkbox"
                                                 checked={selectedIds.has(item.id)}
                                                 onChange={() => toggleSelection(item.id)}
-                                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                                className="w-4 h-4 rounded border-white/10 bg-[#0d1425] text-pink-500 focus:ring-offset-[#0d1425] focus:ring-pink-500 cursor-pointer"
                                             />
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <img src={item.thumbnailUrl} alt={item.title} className="h-12 w-16 object-cover rounded" />
+                                            <div className="w-16 h-12 rounded-lg overflow-hidden border border-white/10 relative">
+                                                <img src={item.thumbnailUrl} alt={item.title} className="w-full h-full object-cover" />
+                                            </div>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <td className="px-6 py-4 whitespace-nowrap text-xs font-mono text-slate-400">
                                             {item.id}
                                         </td>
-                                        <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate" title={item.title}>
+                                        <td className="px-6 py-4 text-xs font-bold text-slate-200 max-w-xs truncate" title={item.title}>
                                             {item.title}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-emerald-400">
                                             {item.downloads}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <td className="px-6 py-4 whitespace-nowrap text-xs font-medium text-slate-400">
                                             {item.creator}
                                         </td>
                                     </tr>
