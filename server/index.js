@@ -145,8 +145,20 @@ function mapImages(data) {
 }
 
 function parseRscResponse(content) {
-  const marker = '{"query":"';
-  const startIdx = content.indexOf(marker);
+  const markers = ['{"query":"', '{"contributorId":"', '{"search":"'];
+  let startIdx = -1;
+  let markerFound = "";
+
+  for (const m of markers) {
+    const idx = content.indexOf(m);
+    if (idx !== -1) {
+      if (startIdx === -1 || idx < startIdx) {
+        startIdx = idx;
+        markerFound = m;
+      }
+    }
+  }
+
   if (startIdx === -1) return null;
   let depth = 0;
   for (let i = startIdx; i < content.length; i++) {
