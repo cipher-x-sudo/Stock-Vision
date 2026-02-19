@@ -343,7 +343,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                             }`}
                     >
                         <i className="fa-solid fa-file-csv mr-2" />
-                        Creator Cloning (CSV)
+                        Creator Cloning
                     </button>
                 </div>
             </div>
