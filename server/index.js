@@ -250,18 +250,32 @@ app.get("/api/track-contributor", async (req, res) => {
   }
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const aiOnly = req.query.ai_only === "1" || req.query.ai_only === "true";
-  const contentType = req.query.content_type;
-  const order = req.query.order;
+  const contentType = req.query.content_type || "all";
+  const order = req.query.order || "relevance";
 
   const encodedQuery = encodeURIComponent(q);
-  let url = `https://trackadobestock.com/contributor?search=${encodedQuery}`;
-  if (aiOnly) url += "&generative_ai=only";
-  if (contentType && contentType !== 'all') url += `&content_type=${contentType}`;
-  if (order && order !== 'relevance') url += `&order=${order}`;
+  let url = `https://trackadobestock.com/contributor?search=${encodedQuery}&order=${order}&content_type=${contentType}&generative_ai=${aiOnly ? 'only' : 'all'}`;
   if (page > 1) url += `&page=${page}`;
-  url += "&_rsc=1gn38";
 
-  const headers = { ...TRACK_HEADERS, cookie: cookieHeader };
+  // Contributor pages need a normal HTML fetch, NOT an RSC fetch.
+  // The TRACK_HEADERS contain rsc:1, next-url:/search which are wrong here.
+  const headers = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "accept-language": "en-GB,en;q=0.9,ur-PK;q=0.8,ur;q=0.7,en-US;q=0.6",
+    "cache-control": "no-cache",
+    "pragma": "no-cache",
+    "referer": "https://trackadobestock.com/contributor",
+    "sec-ch-ua": '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+    "cookie": cookieHeader,
+  };
 
   try {
     const response = await fetch(url, { headers });
@@ -272,12 +286,58 @@ app.get("/api/track-contributor", async (req, res) => {
       });
       return;
     }
-    const content = await response.text();
-    const data = parseRscResponse(content);
+    const html = await response.text();
+
+    // Next.js embeds data via self.__next_f.push([1,"..."]) calls in <script> tags.
+    // We need to find the chunk containing the images array.
+    let data = null;
+
+    // Strategy 1: Try parseRscResponse on the raw HTML (works if RSC-like data is inline)
+    data = parseRscResponse(html);
+
+    // Strategy 2: Extract from self.__next_f.push payloads
     if (!data) {
+      const pushPattern = /self\.__next_f\.push\(\[1,"(.+?)"\]\)/gs;
+      let combined = "";
+      let m;
+      while ((m = pushPattern.exec(html)) !== null) {
+        // Unescape the JSON-encoded string
+        try {
+          combined += m[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+        } catch (_) { }
+      }
+      if (combined) {
+        data = parseRscResponse(combined);
+      }
+    }
+
+    if (!data) {
+      // Strategy 3: Look for a large JSON blob with "images" key directly
+      const imgMatch = html.match(/\{"(?:contributorId|search)"[^}]*"images"\s*:\s*\[/);
+      if (imgMatch) {
+        const startIdx = html.indexOf(imgMatch[0]);
+        let depth = 0;
+        for (let i = startIdx; i < html.length; i++) {
+          if (html[i] === "{") depth++;
+          else if (html[i] === "}") {
+            depth--;
+            if (depth === 0) {
+              try {
+                data = JSON.parse(html.substring(startIdx, i + 1));
+              } catch (_) { }
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (!data) {
+      console.warn("TrackAdobe contributor: could not parse response data from", url);
       res.json({ images: [], usage: {} });
       return;
     }
+
     let images = mapImages(data);
     if (aiOnly && images.length > 0) {
       const aiFiltered = images.filter((img) => img.isAI === true);
@@ -292,6 +352,7 @@ app.get("/api/track-contributor", async (req, res) => {
     });
   }
 });
+
 
 app.get("/api/favorites/contributors", (req, res) => {
   try {
