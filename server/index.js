@@ -301,57 +301,85 @@ app.get("/api/track-contributor", async (req, res) => {
 
     // Strategy 2: Extract from self.__next_f.push payloads properly
     if (!data) {
-      const pushMarker = "self.__next_f.push(";
-      let searchFrom = 0;
+      // The format is: self.__next_f.push([1, "ESCAPED_CONTENT"])
+      // Note: there may or may not be whitespace after the comma.
+      // Inside the string, all " are escaped as \", and \\ represents a literal backslash.
+      // We use a regex to find each push call start, then track escape state to find string end.
+      const pushPattern = /self\.__next_f\.push\(\[1,\s*"/g;
       let combined = "";
+      let match;
 
-      while (true) {
-        const pushIdx = html.indexOf(pushMarker, searchFrom);
-        if (pushIdx === -1) break;
-
-        const argStart = pushIdx + pushMarker.length;
-        // Find the matching closing paren by tracking bracket depth
-        let depth = 0;
-        let argEnd = -1;
-        for (let i = argStart; i < html.length; i++) {
-          const ch = html[i];
-          if (ch === "[" || ch === "(") depth++;
-          else if (ch === "]" || ch === ")") {
-            depth--;
-            if (depth <= 0) {
-              argEnd = i;
-              break;
-            }
+      while ((match = pushPattern.exec(html)) !== null) {
+        const strStart = match.index + match[0].length;
+        // Find the end of the JSON string by tracking escape state
+        let escaped = false;
+        let strEnd = -1;
+        for (let i = strStart; i < html.length; i++) {
+          if (escaped) {
+            escaped = false;
+            continue;
           }
-          // Skip escaped characters inside strings
-          if (ch === "\\" && i + 1 < html.length) i++;
+          if (html[i] === '\\') {
+            escaped = true;
+            continue;
+          }
+          if (html[i] === '"') {
+            strEnd = i;
+            break;
+          }
         }
 
-        if (argEnd === -1) {
-          searchFrom = argStart;
+        if (strEnd === -1) continue;
+
+        const rawStr = html.substring(strStart, strEnd);
+
+        // Decode the escaped string — reconstruct as a JSON string and parse
+        let decoded;
+        try {
+          decoded = JSON.parse('"' + rawStr + '"');
+        } catch (_) {
           continue;
         }
 
-        const rawArg = html.substring(argStart, argEnd);
-        searchFrom = argEnd + 1;
-
-        // Try to parse the array argument [1, "..."]
-        try {
-          const arr = JSON.parse(rawArg);
-          if (Array.isArray(arr) && arr.length >= 2 && typeof arr[1] === "string") {
-            const decoded = arr[1];
-            // Check if this chunk contains images data
-            if (decoded.includes('"images"') || decoded.includes('"contributorId"')) {
-              combined += decoded;
-            }
-          }
-        } catch (_) {
-          // Not valid JSON, skip
+        // Check if this decoded chunk contains the data we need
+        if (decoded.includes('"images"') || decoded.includes('"contributorId"')) {
+          combined += decoded;
         }
       }
 
       if (combined) {
         data = parseRscResponse(combined);
+
+        // Fallback: parseRscResponse markers may not match contributor page data.
+        // The images are nested inside React component tree like: ["$","$L25",null,{"images":[...]}]
+        // Search directly for {"images":[ and extract the containing JSON object.
+        if (!data) {
+          const imgMarker = '"images":[';
+          const imgIdx = combined.indexOf(imgMarker);
+          if (imgIdx !== -1) {
+            // Walk backwards to find the opening { of this object
+            let objStart = -1;
+            for (let i = imgIdx - 1; i >= 0; i--) {
+              if (combined[i] === '{') { objStart = i; break; }
+              if (combined[i] !== ',' && combined[i] !== '"' && combined[i] !== ' ' && combined[i] !== '\n') break;
+            }
+            if (objStart !== -1) {
+              let depth = 0;
+              for (let i = objStart; i < combined.length; i++) {
+                if (combined[i] === '{') depth++;
+                else if (combined[i] === '}') {
+                  depth--;
+                  if (depth === 0) {
+                    try {
+                      data = JSON.parse(combined.substring(objStart, i + 1));
+                    } catch (_) { }
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
 
