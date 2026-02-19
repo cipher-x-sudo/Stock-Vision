@@ -289,46 +289,69 @@ app.get("/api/track-contributor", async (req, res) => {
     const html = await response.text();
 
     // Next.js embeds data via self.__next_f.push([1,"..."]) calls in <script> tags.
-    // We need to find the chunk containing the images array.
+    // The payload is a huge double-escaped JSON string. We need to:
+    // 1. Find each self.__next_f.push call
+    // 2. Extract the full argument (handling nested brackets)
+    // 3. JSON.parse the argument array to get the decoded string
+    // 4. Search decoded strings for the images data
     let data = null;
 
-    // Strategy 1: Try parseRscResponse on the raw HTML (works if RSC-like data is inline)
+    // Strategy 1: Try parseRscResponse on the raw HTML first
     data = parseRscResponse(html);
 
-    // Strategy 2: Extract from self.__next_f.push payloads
+    // Strategy 2: Extract from self.__next_f.push payloads properly
     if (!data) {
-      const pushPattern = /self\.__next_f\.push\(\[1,"(.+?)"\]\)/gs;
+      const pushMarker = "self.__next_f.push(";
+      let searchFrom = 0;
       let combined = "";
-      let m;
-      while ((m = pushPattern.exec(html)) !== null) {
-        // Unescape the JSON-encoded string
-        try {
-          combined += m[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
-        } catch (_) { }
-      }
-      if (combined) {
-        data = parseRscResponse(combined);
-      }
-    }
 
-    if (!data) {
-      // Strategy 3: Look for a large JSON blob with "images" key directly
-      const imgMatch = html.match(/\{"(?:contributorId|search)"[^}]*"images"\s*:\s*\[/);
-      if (imgMatch) {
-        const startIdx = html.indexOf(imgMatch[0]);
+      while (true) {
+        const pushIdx = html.indexOf(pushMarker, searchFrom);
+        if (pushIdx === -1) break;
+
+        const argStart = pushIdx + pushMarker.length;
+        // Find the matching closing paren by tracking bracket depth
         let depth = 0;
-        for (let i = startIdx; i < html.length; i++) {
-          if (html[i] === "{") depth++;
-          else if (html[i] === "}") {
+        let argEnd = -1;
+        for (let i = argStart; i < html.length; i++) {
+          const ch = html[i];
+          if (ch === "[" || ch === "(") depth++;
+          else if (ch === "]" || ch === ")") {
             depth--;
-            if (depth === 0) {
-              try {
-                data = JSON.parse(html.substring(startIdx, i + 1));
-              } catch (_) { }
+            if (depth <= 0) {
+              argEnd = i;
               break;
             }
           }
+          // Skip escaped characters inside strings
+          if (ch === "\\" && i + 1 < html.length) i++;
         }
+
+        if (argEnd === -1) {
+          searchFrom = argStart;
+          continue;
+        }
+
+        const rawArg = html.substring(argStart, argEnd);
+        searchFrom = argEnd + 1;
+
+        // Try to parse the array argument [1, "..."]
+        try {
+          const arr = JSON.parse(rawArg);
+          if (Array.isArray(arr) && arr.length >= 2 && typeof arr[1] === "string") {
+            const decoded = arr[1];
+            // Check if this chunk contains images data
+            if (decoded.includes('"images"') || decoded.includes('"contributorId"')) {
+              combined += decoded;
+            }
+          }
+        } catch (_) {
+          // Not valid JSON, skip
+        }
+      }
+
+      if (combined) {
+        data = parseRscResponse(combined);
       }
     }
 
