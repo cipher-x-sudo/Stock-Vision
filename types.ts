@@ -154,4 +154,5 @@ export interface GeneratedImage {
   videoUrl?: string;
   videoStatus: 'idle' | 'planning' | 'generating' | 'done' | 'error';
   videoPlan?: any;
+  imageSize?: string;
 }

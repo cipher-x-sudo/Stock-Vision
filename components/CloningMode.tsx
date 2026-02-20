@@ -385,7 +385,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         try {
             const dataUrl = await generateImageFromPrompt(session.generated.prompt, currentSettings);
             setCloningSessions(prev => prev.map((s, i) =>
-                i === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
+                i === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: currentSettings.imageSize } } : s
             ));
         } catch (err: any) {
             setCloningSessions(prev => prev.map((s, i) =>
@@ -428,7 +428,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 try {
                     const dataUrl = await generateImageFromPrompt(session.generated.prompt!, currentSettings);
                     setCloningSessions(prev => prev.map((s, idx) =>
-                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
+                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: currentSettings.imageSize } } : s
                     ));
                 } catch (err: any) {
                     setCloningSessions(prev => prev.map((s, idx) =>
@@ -489,7 +489,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     const upscaleAllSessions = useCallback(async () => {
         const upscalable = cloningSessions
             .map((s, i) => ({ session: s, index: i }))
-            .filter(item => item.session.generated.dataUrl && item.session.generated.upscaleStatus !== 'done');
+            .filter(item => item.session.generated.dataUrl && item.session.generated.upscaleStatus !== 'done' && item.session.generated.imageSize !== '4K' && item.session.generated.imageSize !== '4k');
 
         if (upscalable.length === 0) return;
 
@@ -578,7 +578,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 try {
                     const dataUrl = await generateImageFromPrompt(session.generated.prompt!, currentSettings);
                     setCloningSessions(prev => prev.map((s, idx) =>
-                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
+                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: currentSettings.imageSize } } : s
                     ));
                 } catch (err: any) {
                     setCloningSessions(prev => prev.map((s, idx) =>
@@ -1012,7 +1012,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm flex items-center justify-center gap-4">
                                                     {(session.generated.dataUrl || session.generated.upscaledUrl) && (
                                                         <div className="flex flex-col gap-2">
-                                                            {session.generated.upscaleStatus !== 'done' && session.generated.upscaleStatus !== 'upscaling' && (
+                                                            {session.generated.upscaleStatus !== 'done' && session.generated.upscaleStatus !== 'upscaling' && session.generated.imageSize !== '4K' && session.generated.imageSize !== '4k' && (
                                                                 <button
                                                                     onClick={() => upscaleSession(i)}
                                                                     className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/50 rounded-xl text-amber-300 font-bold text-xs uppercase transition-all shadow-lg"

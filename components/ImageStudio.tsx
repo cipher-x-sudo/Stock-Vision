@@ -143,7 +143,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
         try {
             const dataUrl = await generateImageFromPrompt(items[index].prompt, currentSettings);
             setItems(prev => prev.map((it, i) =>
-                i === index ? { ...it, dataUrl, status: 'done' } : it
+                i === index ? { ...it, dataUrl, status: 'done', imageSize: currentSettings.imageSize } : it
             ));
         } catch (err: any) {
             setItems(prev => prev.map((it, i) =>
@@ -171,7 +171,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
             try {
                 const dataUrl = await generateImageFromPrompt(items[i].prompt, currentSettings);
                 setItems(prev => prev.map((it, idx) =>
-                    idx === i ? { ...it, dataUrl, status: 'done' } : it
+                    idx === i ? { ...it, dataUrl, status: 'done', imageSize: currentSettings.imageSize } : it
                 ));
             } catch (err: any) {
                 setItems(prev => prev.map((it, idx) =>
@@ -210,14 +210,14 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
     const upscaleAll = useCallback(async () => {
         abortRef.current = false;
         setUpscaleBatchRunning(true);
-        const eligible = items.filter(it => it.status === 'done' && it.upscaleStatus !== 'done');
+        const eligible = items.filter(it => it.status === 'done' && it.upscaleStatus !== 'done' && it.imageSize !== '4k' && it.imageSize !== '4K');
         setUpscaleBatchProgress({ current: 0, total: eligible.length });
         let completed = 0;
 
         for (let i = 0; i < items.length; i++) {
             if (abortRef.current) break;
             const item = items[i];
-            if (item.status !== 'done' || item.upscaleStatus === 'done' || !item.dataUrl) continue;
+            if (item.status !== 'done' || item.upscaleStatus === 'done' || !item.dataUrl || item.imageSize === '4k' || item.imageSize === '4K') continue;
 
             setItems(prev => prev.map((it, idx) =>
                 idx === i ? { ...it, upscaleStatus: 'upscaling', error: undefined } : it
@@ -675,7 +675,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                                             )}
                                         </td>
                                         <td className="px-4 py-3">
-                                            {item.upscaleStatus === 'idle' && item.status === 'done' && (
+                                            {item.upscaleStatus === 'idle' && item.status === 'done' && item.imageSize !== '4K' && item.imageSize !== '4k' && (
                                                 <span className="text-slate-600 text-xs font-bold uppercase">—</span>
                                             )}
                                             {item.upscaleStatus === 'upscaling' && (
@@ -683,7 +683,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                                                     <i className="fa-solid fa-spinner fa-spin mr-1"></i> 4K
                                                 </span>
                                             )}
-                                            {item.upscaleStatus === 'done' && (
+                                            {(item.upscaleStatus === 'done' || item.imageSize === '4K' || item.imageSize === '4k') && (
                                                 <span className="text-amber-400 text-xs font-bold uppercase">
                                                     <i className="fa-solid fa-crown mr-1"></i> 4K
                                                 </span>
@@ -712,7 +712,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                                                         Generate
                                                     </button>
                                                 )}
-                                                {item.dataUrl && item.upscaleStatus !== 'done' && item.upscaleStatus !== 'upscaling' && (
+                                                {item.dataUrl && item.upscaleStatus !== 'done' && item.upscaleStatus !== 'upscaling' && item.imageSize !== '4K' && item.imageSize !== '4k' && (
                                                     <button
                                                         onClick={() => upscaleOne(i)}
                                                         disabled={batchRunning || upscaleBatchRunning}
