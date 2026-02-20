@@ -179,6 +179,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     const [imageSize, setImageSize] = useState('1K');
     const [negativePrompt, setNegativePrompt] = useState('');
     const [videoFastMode, setVideoFastMode] = useState<boolean>(true);
+    const [videoResolution, setVideoResolution] = useState<string>('16:9');
     const [settingsOpen, setSettingsOpen] = useState(false);
 
     const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
@@ -523,7 +524,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 i === index ? { ...s, generated: { ...s.generated, videoStatus: 'generating' } } : s
             ));
 
-            const result = await renderVideoFromPlan(src, session.generated.prompt.scene, plan, videoFastMode);
+            const result = await renderVideoFromPlan(src, session.generated.prompt.scene, plan, videoFastMode, videoResolution);
 
             setCloningSessions(prev => prev.map((s, i) =>
                 i === index ? { ...s, generated: { ...s.generated, videoUrl: result.videoUrl, videoStatus: 'done' } } : s
@@ -533,7 +534,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 i === index ? { ...s, generated: { ...s.generated, videoStatus: 'error', error: err.message } } : s
             ));
         }
-    }, [cloningSessions, videoFastMode]);
+    }, [cloningSessions, videoFastMode, videoResolution]);
 
     const generateAllVideos = useCallback(async () => {
         const videoable = cloningSessions
@@ -857,6 +858,31 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                             >
                                                 <span className="flex items-center"><i className="fa-solid fa-gem text-violet-400 mr-2"></i> Veo 3.1 High Quality</span>
                                             </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Video Resolution */}
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                                            <i className="fa-solid fa-expand text-violet-400 mr-2"></i>
+                                            Video Resolution
+                                        </label>
+                                        <div className="space-y-2">
+                                            {[
+                                                { value: '16:9', label: '1080p Landscape (16:9)' },
+                                                { value: '9:16', label: '1080p Portrait (9:16)' }
+                                            ].map(r => (
+                                                <button
+                                                    key={r.value}
+                                                    onClick={() => setVideoResolution(r.value)}
+                                                    className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left flex justify-between items-center ${videoResolution === r.value
+                                                            ? 'bg-violet-500/20 border-violet-500/50 text-violet-300 shadow-lg shadow-violet-500/10'
+                                                            : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-violet-500/30 hover:text-slate-300'
+                                                        }`}
+                                                >
+                                                    {r.label}
+                                                </button>
+                                            ))}
                                         </div>
                                     </div>
 

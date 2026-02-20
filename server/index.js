@@ -1201,6 +1201,8 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
 });
 
 // ── Video Plan Generation (Director Mode) ──────────────────────
+const DIRECTOR_TEMPLATE = JSON.parse(fs.readFileSync(path.join(__dirname, "director_template.json"), "utf8"));
+
 app.post("/api/generate-video-plan", async (req, res) => {
   try {
     const { image, prompt } = req.body;
@@ -1252,7 +1254,7 @@ app.post("/api/generate-video", async (req, res) => {
   // We may need more time for Veo processing. Express usually times out after a few minutes,
   // but we will do our best to poll. If Railway kills it at 100s, this may still fail.
   try {
-    const { image, prompt, plan, fast } = req.body;
+    const { image, prompt, plan, fast, videoResolution } = req.body;
     if (!image) return res.status(400).json({ error: "Missing image data" });
 
     let mimeType, base64Data;
@@ -1284,6 +1286,7 @@ app.post("/api/generate-video", async (req, res) => {
       model: modelName,
       prompt: videoPrompt,
       config: {
+        ...(videoResolution && { aspectRatio: videoResolution }), // Add custom resolution/ratio logic here if supported
         referenceImages: [
           {
             image: { imageBytes: base64Data, mimeType },

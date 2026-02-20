@@ -44,6 +44,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
     const [aspectRatio, setAspectRatio] = useState('');
     const [imageSize, setImageSize] = useState('1K');
     const [negativePrompt, setNegativePrompt] = useState('');
+    const [videoResolution, setVideoResolution] = useState('16:9');
     const [settingsOpen, setSettingsOpen] = useState(true);
     const [manualPrompt, setManualPrompt] = useState('');
 
@@ -265,7 +266,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                 i === index ? { ...it, videoStatus: 'generating' } : it
             ));
 
-            const result = await renderVideoFromPlan(src, item.prompt.scene, plan, fast);
+            const result = await renderVideoFromPlan(src, item.prompt.scene, plan, fast, videoResolution);
 
             setItems(prev => prev.map((it, i) =>
                 i === index ? { ...it, videoUrl: result.videoUrl, videoStatus: 'done' } : it
@@ -415,7 +416,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
 
                 {settingsOpen && (
                     <div className="px-8 pb-8 pt-2 border-t border-white/5">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             {/* Aspect Ratio */}
                             <div>
                                 <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
@@ -455,6 +456,31 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                                                 }`}
                                         >
                                             {r.value === '4K' && <i className="fa-solid fa-crown text-amber-400 mr-2"></i>}
+                                            {r.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Video Resolution */}
+                            <div>
+                                <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                                    <i className="fa-solid fa-expand text-violet-400 mr-2"></i>
+                                    Video Resolution
+                                </label>
+                                <div className="space-y-2">
+                                    {[
+                                        { value: '16:9', label: '1080p Landscape (16:9)' },
+                                        { value: '9:16', label: '1080p Portrait (9:16)' }
+                                    ].map(r => (
+                                        <button
+                                            key={r.value}
+                                            onClick={() => setVideoResolution(r.value)}
+                                            className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left flex justify-between items-center ${videoResolution === r.value
+                                                    ? 'bg-violet-500/20 border-violet-500/50 text-violet-300 shadow-lg shadow-violet-500/10'
+                                                    : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-violet-500/30 hover:text-slate-300'
+                                                }`}
+                                        >
                                             {r.label}
                                         </button>
                                     ))}
