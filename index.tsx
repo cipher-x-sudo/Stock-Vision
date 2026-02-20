@@ -1,6 +1,7 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { HistoryProvider } from './contexts/HistoryContext';
 
@@ -12,8 +13,10 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <HistoryProvider>
-      <App />
-    </HistoryProvider>
+    <BrowserRouter>
+      <HistoryProvider>
+        <App />
+      </HistoryProvider>
+    </BrowserRouter>
   </React.StrictMode>
 );

@@ -1068,7 +1068,9 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                     <p className="text-[10px] sm:text-xs text-slate-300 line-clamp-4 leading-relaxed font-medium group-hover:text-slate-200">
                                                         <i className="fa-solid fa-scroll text-violet-400 mr-2"></i>
                                                         <span className="text-violet-300 font-bold">Raw Plan: </span>
-                                                        {session.generated.videoPlan as string}
+                                                        {typeof session.generated.videoPlan === 'string'
+                                                            ? session.generated.videoPlan
+                                                            : JSON.stringify(session.generated.videoPlan, null, 2)}
                                                     </p>
                                                 );
                                             }
