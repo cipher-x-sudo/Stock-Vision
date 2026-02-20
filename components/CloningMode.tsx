@@ -7,7 +7,7 @@ import {
     getFavoriteContributors,
     toggleFavoriteContributor
 } from '../services/trackAdobeService';
-import { generateImageFromPrompt, upscaleImage } from '../services/imageGenService';
+import { generateImageFromPrompt, upscaleImage, generateVideoFromImage } from '../services/imageGenService';
 import type { GenerationSettings } from '../services/imageGenService';
 import ScanConfigModal from './ScanConfigModal';
 import Portal from './Portal';
@@ -178,6 +178,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     const [aspectRatio, setAspectRatio] = useState('16:9');
     const [imageSize, setImageSize] = useState('1K');
     const [negativePrompt, setNegativePrompt] = useState('');
+    const [videoFastMode, setVideoFastMode] = useState<boolean>(true);
     const [settingsOpen, setSettingsOpen] = useState(false);
 
     const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
@@ -487,6 +488,38 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         }
     }, [cloningSessions, upscaleSession]);
 
+    const generateVideo = useCallback(async (index: number) => {
+        const session = cloningSessions[index];
+        const src = session.generated.upscaledUrl || session.generated.dataUrl;
+        if (!src || !session.generated.prompt) return;
+
+        setCloningSessions(prev => prev.map((s, i) =>
+            i === index ? { ...s, generated: { ...s.generated, videoStatus: 'planning', error: undefined } } : s
+        ));
+        try {
+            const result = await generateVideoFromImage(src, session.generated.prompt.scene, videoFastMode);
+            setCloningSessions(prev => prev.map((s, i) =>
+                i === index ? { ...s, generated: { ...s.generated, videoUrl: result.videoUrl, videoPlan: result.plan, videoStatus: 'done' } } : s
+            ));
+        } catch (err: any) {
+            setCloningSessions(prev => prev.map((s, i) =>
+                i === index ? { ...s, generated: { ...s.generated, videoStatus: 'error', error: err.message } } : s
+            ));
+        }
+    }, [cloningSessions, videoFastMode]);
+
+    const generateAllVideos = useCallback(async () => {
+        const videoable = cloningSessions
+            .map((s, i) => ({ session: s, index: i }))
+            .filter(item => (item.session.generated.dataUrl || item.session.generated.upscaledUrl) && item.session.generated.videoStatus !== 'done');
+
+        if (videoable.length === 0) return;
+
+        for (const { index } of videoable) {
+            await generateVideo(index);
+        }
+    }, [cloningSessions, generateVideo]);
+
     const [isZipping, setIsZipping] = useState(false);
     const downloadAllAsZip = useCallback(async () => {
         const completedSessions = cloningSessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
@@ -496,9 +529,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         try {
             const zip = new JSZip();
 
-            // Helper to convert base64 to blob
             const base64ToBlob = async (base64Url: string) => {
                 const res = await fetch(base64Url);
+                return await res.blob();
+            };
+
+            const fetchVideoBlob = async (videoUrl: string) => {
+                const res = await fetch(videoUrl);
                 return await res.blob();
             };
 
@@ -507,15 +544,24 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 const src = session.generated.upscaledUrl || session.generated.dataUrl;
                 if (!src) continue;
 
-                const blob = await base64ToBlob(src);
+                const imgBlob = await base64ToBlob(src);
                 const is4K = !!session.generated.upscaledUrl;
-                const fileName = `cloned_asset_${session.original.id}${is4K ? '_4K' : ''}_${i + 1}.png`;
+                const baseName = `cloned_asset_${session.original.id}_${i + 1}`;
 
-                zip.file(fileName, blob);
+                zip.file(`${baseName}${is4K ? '_4K' : ''}.png`, imgBlob);
+
+                if (session.generated.videoUrl) {
+                    try {
+                        const vidBlob = await fetchVideoBlob(session.generated.videoUrl);
+                        zip.file(`${baseName}_animated.mp4`, vidBlob);
+                    } catch (e) {
+                        console.error("Failed to fetch video for ZIP", e);
+                    }
+                }
             }
 
             const content = await zip.generateAsync({ type: 'blob' });
-            saveAs(content, `viral_clones_${new Date().toISOString().split('T')[0]}.zip`);
+            saveAs(content, `viral_clones_with_video_${new Date().toISOString().split('T')[0]}.zip`);
         } catch (error) {
             console.error("Failed to zip images:", error);
         } finally {
@@ -589,6 +635,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 className="px-6 py-3 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 rounded-xl font-black text-xs uppercase tracking-widest text-amber-300 shadow-lg shadow-amber-500/10 transition-all"
                             >
                                 <i className="fa-solid fa-wand-magic-sparkles mr-2"></i> Upscale All 4K
+                            </button>
+
+                            <button
+                                onClick={generateAllVideos}
+                                className="px-6 py-3 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/50 rounded-xl font-black text-xs uppercase tracking-widest text-violet-300 shadow-lg shadow-violet-500/10 transition-all"
+                            >
+                                <i className="fa-solid fa-video mr-2"></i> Generate All Videos
                             </button>
 
                             <button
@@ -669,20 +722,50 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                 <button
                                                     key={r.value}
                                                     onClick={() => setImageSize(r.value)}
-                                                    className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left ${imageSize === r.value
+                                                    className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left flex justify-between items-center ${imageSize === r.value
                                                         ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-lg shadow-amber-500/10'
                                                         : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-amber-500/30 hover:text-slate-300'
                                                         }`}
                                                 >
-                                                    {r.value === '4K' && <i className="fa-solid fa-crown text-amber-400 mr-2"></i>}
-                                                    {r.label}
+                                                    <span className="flex items-center">
+                                                        {r.value === '4K' && <i className="fa-solid fa-crown text-amber-400 mr-2"></i>}
+                                                        {r.label}
+                                                    </span>
                                                 </button>
                                             ))}
                                         </div>
                                     </div>
 
-                                    {/* Negative Prompt */}
+                                    {/* Video Speed */}
                                     <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                                            <i className="fa-solid fa-video text-violet-400 mr-2"></i>
+                                            Video Generation Model
+                                        </label>
+                                        <div className="space-y-2">
+                                            <button
+                                                onClick={() => setVideoFastMode(true)}
+                                                className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left flex justify-between items-center ${videoFastMode
+                                                    ? 'bg-violet-500/20 border-violet-500/50 text-violet-300 shadow-lg shadow-violet-500/10'
+                                                    : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-violet-500/30 hover:text-slate-300'
+                                                    }`}
+                                            >
+                                                <span className="flex items-center"><i className="fa-solid fa-bolt text-violet-400 mr-2"></i> Veo 3.1 Fast (Draft)</span>
+                                            </button>
+                                            <button
+                                                onClick={() => setVideoFastMode(false)}
+                                                className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left flex justify-between items-center ${!videoFastMode
+                                                    ? 'bg-violet-500/20 border-violet-500/50 text-violet-300 shadow-lg shadow-violet-500/10'
+                                                    : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-violet-500/30 hover:text-slate-300'
+                                                    }`}
+                                            >
+                                                <span className="flex items-center"><i className="fa-solid fa-gem text-violet-400 mr-2"></i> Veo 3.1 High Quality</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Negative Prompt */}
+                                    <div className="md:col-span-3">
                                         <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
                                             <i className="fa-solid fa-ban text-red-400 mr-2"></i>
                                             Negative Prompt
@@ -691,7 +774,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                             value={negativePrompt}
                                             onChange={(e) => setNegativePrompt(e.target.value)}
                                             placeholder="Things to avoid... e.g. blurry, watermark, text, low quality, deformed"
-                                            rows={5}
+                                            rows={3}
                                             className="w-full bg-[#161d2f] border border-white/5 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-red-500/30 focus:ring-1 focus:ring-red-500/20 resize-none transition-all"
                                         />
                                     </div>
@@ -754,16 +837,16 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 </div>
 
                                 {/* Center: Arrow */}
-                                <div className="hidden lg:flex flex-col items-center justify-center text-slate-700">
-                                    <div className="w-10 h-10 rounded-full bg-[#161d2f] border border-white/5 flex items-center justify-center shadow-lg">
-                                        <i className="fa-solid fa-arrow-right text-slate-500"></i>
+                                <div className="hidden lg:flex flex-col items-center justify-center text-slate-700 shrink-0 mx-2">
+                                    <div className="w-8 h-8 rounded-full bg-[#161d2f] border border-white/5 flex items-center justify-center shadow-lg">
+                                        <i className="fa-solid fa-arrow-right text-slate-500 text-sm"></i>
                                     </div>
                                 </div>
 
-                                {/* Right: Generated */}
-                                <div className="flex-1 space-y-3 flex flex-col">
+                                {/* Center: Generated Image */}
+                                <div className="flex-1 space-y-3 flex flex-col min-w-0">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-pink-500">Clone</span>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-pink-500">Cloned Image</span>
                                         <div className="flex gap-2">
                                             {session.generated.analysisStatus === 'analyzing' && <span className="text-pink-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-spinner fa-spin mr-1"></i> Vision</span>}
                                             {session.generated.analysisStatus === 'done' && session.generated.status === 'generating' && <span className="text-pink-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-spinner fa-spin mr-1"></i> Drawing</span>}
@@ -775,7 +858,34 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                         ${(session.generated.analysisStatus === 'analyzing' || session.generated.status === 'generating') ? 'animate-heartbeat border-pink-500' : 'border-white/5 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]'}
                                     `}>
                                         {session.generated.dataUrl || session.generated.upscaledUrl ? (
-                                            <img src={session.generated.upscaledUrl || session.generated.dataUrl!} alt="Generated" className="w-full h-full object-contain" />
+                                            <>
+                                                <img src={session.generated.upscaledUrl || session.generated.dataUrl!} alt="Generated" className="w-full h-full object-contain" />
+                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm flex items-center justify-center gap-4">
+                                                    {(session.generated.dataUrl || session.generated.upscaledUrl) && (
+                                                        <div className="flex flex-col gap-2">
+                                                            {session.generated.upscaleStatus !== 'done' && session.generated.upscaleStatus !== 'upscaling' && (
+                                                                <button
+                                                                    onClick={() => upscaleSession(i)}
+                                                                    className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/50 rounded-xl text-amber-300 font-bold text-xs uppercase transition-all shadow-lg"
+                                                                >
+                                                                    <i className="fa-solid fa-wand-magic-sparkles mr-2"></i> Upscale 4K
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                onClick={() => downloadSession(i)}
+                                                                className="px-4 py-2 bg-sky-500/20 hover:bg-sky-500/40 border border-sky-500/50 rounded-xl text-sky-300 font-bold text-xs uppercase transition-all shadow-lg"
+                                                            >
+                                                                <i className="fa-solid fa-download mr-2"></i> Download Image
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {session.generated.upscaleStatus === 'upscaling' && (
+                                                    <div className="absolute top-2 right-2 px-2 py-1 bg-black/60 border border-amber-500/30 rounded text-[10px] text-amber-400 font-bold backdrop-blur-md shadow-lg shadow-amber-500/20 flex items-center animate-pulse">
+                                                        <i className="fa-solid fa-spinner fa-spin mr-1.5 "></i> Upscaling 4K...
+                                                    </div>
+                                                )}
+                                            </>
                                         ) : (
                                             <div className="text-slate-600 text-center p-4">
                                                 {session.generated.analysisStatus === 'error' ? (
@@ -817,72 +927,121 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                 )}
                                             </div>
                                         )}
-                                        {session.generated.upscaledUrl && (
-                                            <div className="absolute top-2 right-2 px-2 py-1 bg-amber-500 text-white text-[10px] font-black uppercase rounded shadow-lg">
-                                                4K
-                                            </div>
-                                        )}
                                     </div>
-
-                                    {/* Generated Details */}
-                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex flex-col flex-1 gap-2 overflow-hidden min-h-[150px]">
-                                        <div className="flex justify-between items-center shrink-0">
-                                            <span className="text-[10px] font-bold uppercase text-pink-500">Vision Analysis</span>
-                                            {session.generated.prompt?.metadata?.tags && (
-                                                <span className="text-[10px] text-slate-500 uppercase truncate max-w-[150px]">{session.generated.prompt.metadata.tags.slice(0, 3).join(', ')}...</span>
-                                            )}
-                                        </div>
-
-                                        <div className="text-[11px] text-slate-300 leading-relaxed bg-black/30 p-3 rounded-lg border border-white/5 overflow-y-auto custom-scrollbar flex-1 whitespace-pre-wrap">
-                                            {session.generated.prompt ? (
-                                                <>
-                                                    <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Scene</span> {session.generated.prompt.scene}</div>
-                                                    <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Style</span> {session.generated.prompt.style}</div>
-                                                    <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Composition</span> {session.generated.prompt.shot?.composition || 'N/A'}</div>
-                                                    <div><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Lighting</span> {session.generated.prompt.lighting?.primary || 'N/A'}</div>
-                                                </>
-                                            ) : (
-                                                <span className="text-slate-500 italic flex items-center justify-center h-full">Waiting for analysis...</span>
-                                            )}
-                                        </div>
+                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex-1 min-h-[50px] overflow-hidden group hover:border-pink-500/30 transition-colors">
+                                        <p className="text-[10px] sm:text-xs text-slate-300 line-clamp-4 leading-relaxed font-medium group-hover:text-slate-200" title={session.generated.prompt?.scene}>
+                                            {session.generated.prompt?.scene || <span className="text-slate-600 italic">Vision analysis prompt will appear here...</span>}
+                                        </p>
                                     </div>
-
-                                    {/* Action Bar */}
-                                    <div className="flex gap-2 justify-end pt-1 shrink-0">
+                                    <div className="flex justify-between items-center gap-2 mt-2">
                                         <button
                                             onClick={() => generateOneSession(i)}
                                             disabled={generating || session.generated.status === 'generating' || session.generated.analysisStatus !== 'done'}
-                                            className="px-4 py-2 bg-[#161d2f] hover:bg-[#1a2339] border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all disabled:opacity-50"
+                                            className="px-4 py-2 bg-[#161d2f] hover:bg-[#1a2339] border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all disabled:opacity-50 flex-1"
                                         >
-                                            <i className="fa-solid fa-rotate mr-1"></i> Re-Gen
+                                            <i className="fa-solid fa-rotate mr-1"></i> Re-Gen Image
                                         </button>
-                                        {(session.generated.dataUrl) && (
-                                            <>
-                                                <button
-                                                    onClick={() => upscaleSession(i)}
-                                                    disabled={generating || session.generated.upscaleStatus === 'upscaling' || session.generated.upscaleStatus === 'done'}
-                                                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 ${session.generated.upscaleStatus === 'done'
-                                                        ? 'bg-amber-500/20 text-amber-500 border border-amber-500/50'
-                                                        : 'bg-[#161d2f] hover:bg-[#1a2339] border border-white/10 text-slate-300'
-                                                        }`}
-                                                >
-                                                    <i className="fa-solid fa-expand mr-1"></i> {session.generated.upscaleStatus === 'done' ? 'Upscaled' : '4K'}
-                                                </button>
-                                                <button
-                                                    onClick={() => downloadSession(i)}
-                                                    className="px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                                                >
-                                                    <i className="fa-solid fa-download mr-1"></i> Save
-                                                </button>
-                                            </>
-                                        )}
                                         <button
                                             onClick={() => removeSession(i)}
-                                            className="w-10 h-10 flex items-center justify-center bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded-xl border border-rose-500/30 transition-all ml-2"
+                                            className="w-10 h-10 flex items-center justify-center bg-[#161d2f] hover:bg-rose-500/20 text-rose-500/50 hover:text-rose-500 rounded-xl border border-white/10 hover:border-rose-500/30 transition-all"
                                             title="Remove Session"
                                         >
                                             <i className="fa-solid fa-trash"></i>
                                         </button>
+                                    </div>
+                                </div>
+
+                                {/* Right: Video */}
+                                <div className="hidden lg:flex flex-col items-center justify-center text-slate-700 shrink-0 mx-2">
+                                    <div className="w-8 h-8 rounded-full bg-[#161d2f] border border-white/5 flex items-center justify-center shadow-lg">
+                                        <i className="fa-solid fa-arrow-right text-slate-500 text-sm"></i>
+                                    </div>
+                                </div>
+                                <div className="flex-1 space-y-3 flex flex-col min-w-0">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-violet-400">Animated Clone (Veo)</span>
+                                        <div className="flex gap-2">
+                                            {session.generated.videoStatus === 'planning' && <span className="text-violet-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-brain fa-spin mr-1"></i> Brainstorming</span>}
+                                            {session.generated.videoStatus === 'generating' && <span className="text-violet-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-video fa-spin mr-1"></i> Rendering</span>}
+                                            {session.generated.videoStatus === 'done' && <span className="text-pink-400 text-[10px] font-bold uppercase"><i className="fa-solid fa-film mr-1"></i> Video Ready</span>}
+                                            {session.generated.videoStatus === 'error' && <span className="text-red-400 text-[10px] font-bold uppercase"><i className="fa-solid fa-triangle-exclamation mr-1"></i> Error</span>}
+                                        </div>
+                                    </div>
+
+                                    <div className={`aspect-video bg-[#161d2f] rounded-2xl overflow-hidden border relative flex items-center justify-center group shrink-0 transition-all duration-300
+                                        ${(session.generated.videoStatus === 'planning' || session.generated.videoStatus === 'generating') ? 'animate-heartbeat border-violet-500' : 'border-white/5 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]'}
+                                    `}>
+                                        {session.generated.videoUrl ? (
+                                            <>
+                                                <video src={session.generated.videoUrl} autoPlay loop muted playsInline className="w-full h-full object-contain" />
+                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm flex items-center justify-center gap-4">
+                                                    <a
+                                                        href={session.generated.videoUrl}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="px-4 py-2 bg-pink-500/20 hover:bg-pink-500/40 border border-pink-500/50 rounded-xl text-pink-300 font-bold text-xs uppercase transition-all shadow-lg flex items-center"
+                                                    >
+                                                        <i className="fa-solid fa-play mr-2"></i> Play Fullscreen
+                                                    </a>
+                                                    <a
+                                                        href={session.generated.videoUrl}
+                                                        download={`animated_clone_${session.original.id}.mp4`}
+                                                        className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold text-xs uppercase transition-all shadow-lg flex items-center"
+                                                    >
+                                                        <i className="fa-solid fa-download mr-2"></i> Save Video
+                                                    </a>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="text-slate-600 text-center p-4">
+                                                {session.generated.videoStatus === 'error' ? (
+                                                    <>
+                                                        <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2 filter drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]"></i>
+                                                        <p className="text-xs text-rose-400 font-bold">{session.generated.error}</p>
+                                                    </>
+                                                ) : session.generated.videoStatus === 'planning' || session.generated.videoStatus === 'generating' ? (
+                                                    <>
+                                                        <i className="fa-solid fa-video text-3xl mb-3 text-violet-400 filter drop-shadow-[0_0_8px_rgba(139,92,246,0.8)]"></i>
+                                                        <p className="text-[12px] font-black uppercase tracking-[0.2em] text-violet-400 drop-shadow-[0_0_5px_rgba(139,92,246,0.5)]">
+                                                            {session.generated.videoStatus === 'planning' ? 'Planning...' : 'Rendering...'}
+                                                        </p>
+                                                        <div className="w-16 h-1 bg-white/10 rounded-full mt-3 overflow-hidden mx-auto">
+                                                            <div className="w-1/2 h-full bg-violet-500 rounded-full animate-[progress_1s_ease-in-out_infinite]"></div>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        {(session.generated.dataUrl || session.generated.upscaledUrl) && session.generated.status === 'done' ? (
+                                                            <div className="flex flex-col items-center">
+                                                                <i className="fa-solid fa-film text-3xl mb-4 text-violet-400 opacity-50"></i>
+                                                                <button
+                                                                    onClick={() => generateVideo(i)}
+                                                                    className="px-6 py-3 bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/50 rounded-xl font-black text-xs uppercase tracking-widest text-violet-300 shadow-lg shadow-violet-500/10 transition-all flex items-center"
+                                                                >
+                                                                    <i className="fa-solid fa-play mr-2"></i> Animate Clone
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <i className="fa-solid fa-lock text-2xl mb-2 opacity-20"></i>
+                                                                <p className="text-[10px] font-bold uppercase tracking-widest opacity-40 px-6">Generate image clone first to unlock video capabilities</p>
+                                                            </>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex-1 min-h-[50px] overflow-hidden relative group hover:border-violet-500/30 transition-colors flex flex-col justify-center">
+                                        <p className="text-[10px] sm:text-xs text-slate-300 line-clamp-4 leading-relaxed font-medium group-hover:text-slate-200" title={session.generated.videoPlan ? JSON.stringify(session.generated.videoPlan, null, 2) : undefined}>
+                                            {session.generated.videoPlan ? (
+                                                <>
+                                                    <i className="fa-solid fa-scroll text-violet-400 mr-2"></i>
+                                                    <span className="text-violet-300 font-bold">Concept: </span>
+                                                    {JSON.parse(session.generated.videoPlan as string | unknown as string)?.concept || "AI Directed Scene"}
+                                                </>
+                                            ) : <span className="text-slate-600 italic">Director mode planning metadata...</span>}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
