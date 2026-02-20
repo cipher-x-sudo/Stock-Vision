@@ -399,35 +399,43 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         setGenerationProgress({ current: 0, total });
         let completed = 0;
 
-        for (let i = 0; i < cloningSessions.length; i++) {
-            if (abortRef.current) break;
-            const session = cloningSessions[i];
-            if (session.generated.status === 'done' || session.generated.analysisStatus !== 'done' || !session.generated.prompt) {
-                if (session.generated.status === 'done') {
-                    completed++;
-                    setGenerationProgress({ current: completed, total });
+        // Process in chunks defined by threadCount
+        const sessionsToProcess = cloningSessions
+            .map((s, index) => ({ session: s, index }))
+            .filter(item => {
+                if (item.session.generated.status === 'done' || item.session.generated.analysisStatus !== 'done' || !item.session.generated.prompt) {
+                    if (item.session.generated.status === 'done') {
+                        completed++;
+                        setGenerationProgress({ current: completed, total });
+                    }
+                    return false;
                 }
-                continue;
-            }
+                return true;
+            });
 
-            // Start generation
+        for (let i = 0; i < sessionsToProcess.length; i += threadCount) {
+            if (abortRef.current) break;
+            const chunk = sessionsToProcess.slice(i, i + threadCount);
+
+            // Set status to generating for this chunk
             setCloningSessions(prev => prev.map((s, idx) =>
-                idx === i ? { ...s, generated: { ...s.generated, status: 'generating', error: undefined } } : s
+                chunk.some(c => c.index === idx) ? { ...s, generated: { ...s.generated, status: 'generating', error: undefined } } : s
             ));
 
-            try {
-                const dataUrl = await generateImageFromPrompt(session.generated.prompt, currentSettings);
-                setCloningSessions(prev => prev.map((s, idx) =>
-                    idx === i ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
-                ));
-            } catch (err: any) {
-                setCloningSessions(prev => prev.map((s, idx) =>
-                    idx === i ? { ...s, generated: { ...s.generated, status: 'error', error: err.message } } : s
-                ));
-            }
-
-            completed++;
-            setGenerationProgress({ current: completed, total });
+            await Promise.allSettled(chunk.map(async ({ session, index }) => {
+                try {
+                    const dataUrl = await generateImageFromPrompt(session.generated.prompt!, currentSettings);
+                    setCloningSessions(prev => prev.map((s, idx) =>
+                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
+                    ));
+                } catch (err: any) {
+                    setCloningSessions(prev => prev.map((s, idx) =>
+                        idx === index ? { ...s, generated: { ...s.generated, status: 'error', error: err.message } } : s
+                    ));
+                }
+                completed++;
+                setGenerationProgress({ current: completed, total });
+            }));
         }
         setGenerating(false);
     }, [cloningSessions]);
@@ -483,10 +491,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
 
         if (upscalable.length === 0) return;
 
-        for (const { index } of upscalable) {
-            await upscaleSession(index);
+        // Process in chunks defined by threadCount
+        for (let i = 0; i < upscalable.length; i += threadCount) {
+            if (abortRef.current) break;
+            const chunk = upscalable.slice(i, i + threadCount);
+            await Promise.allSettled(chunk.map(({ index }) => upscaleSession(index)));
         }
-    }, [cloningSessions, upscaleSession]);
+    }, [cloningSessions, upscaleSession, threadCount]);
 
     const generateVideo = useCallback(async (index: number) => {
         const session = cloningSessions[index];
@@ -515,10 +526,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
 
         if (videoable.length === 0) return;
 
-        for (const { index } of videoable) {
-            await generateVideo(index);
+        // Process in chunks defined by threadCount
+        for (let i = 0; i < videoable.length; i += threadCount) {
+            if (abortRef.current) break;
+            const chunk = videoable.slice(i, i + threadCount);
+            await Promise.allSettled(chunk.map(({ index }) => generateVideo(index)));
         }
-    }, [cloningSessions, generateVideo]);
+    }, [cloningSessions, generateVideo, threadCount]);
 
     const [isZipping, setIsZipping] = useState(false);
     const downloadAllAsZip = useCallback(async () => {
