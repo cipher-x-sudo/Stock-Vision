@@ -8,6 +8,7 @@ import {
     toggleFavoriteContributor
 } from '../services/trackAdobeService';
 import { generateImageFromPrompt, upscaleImage } from '../services/imageGenService';
+import type { GenerationSettings } from '../services/imageGenService';
 import ScanConfigModal from './ScanConfigModal';
 import Portal from './Portal';
 import CsvCloningMode from './CsvCloningMode';
@@ -22,6 +23,25 @@ interface CloningSession {
     generated: GeneratedImage;
 }
 
+const ASPECT_RATIOS = [
+    { value: '', label: 'Auto' },
+    { value: '1:1', label: '1:1 Square' },
+    { value: '16:9', label: '16:9 Wide' },
+    { value: '9:16', label: '9:16 Tall' },
+    { value: '4:3', label: '4:3' },
+    { value: '3:4', label: '3:4' },
+    { value: '3:2', label: '3:2' },
+    { value: '2:3', label: '2:3' },
+    { value: '4:5', label: '4:5' },
+    { value: '5:4', label: '5:4' },
+    { value: '21:9', label: '21:9 Ultra Wide' },
+];
+
+const RESOLUTIONS = [
+    { value: '1K', label: '1K (Default)' },
+    { value: '2K', label: '2K' },
+    { value: '4K', label: '4K Ultra HD' },
+];
 
 type SortOrder = 'downloads' | 'date' | 'relevance';
 
@@ -151,6 +171,14 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     const [generating, setGenerating] = useState(false);
     const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
     const abortRef = useRef(false);
+
+    // Generation settings
+    const [aspectRatio, setAspectRatio] = useState('16:9');
+    const [imageSize, setImageSize] = useState('1K');
+    const [negativePrompt, setNegativePrompt] = useState('');
+    const [settingsOpen, setSettingsOpen] = useState(false);
+
+    const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
 
     useEffect(() => {
         getFavoriteContributors().then(setFavCreators);
@@ -350,7 +378,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             i === index ? { ...s, generated: { ...s.generated, status: 'generating', error: undefined } } : s
         ));
         try {
-            const dataUrl = await generateImageFromPrompt(session.generated.prompt, { aspectRatio: '16:9', imageSize: '1K', negativePrompt: '' }); // Default settings for cloning
+            const dataUrl = await generateImageFromPrompt(session.generated.prompt, currentSettings);
             setCloningSessions(prev => prev.map((s, i) =>
                 i === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
             ));
@@ -385,7 +413,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             ));
 
             try {
-                const dataUrl = await generateImageFromPrompt(session.generated.prompt, { aspectRatio: '16:9', imageSize: '1K', negativePrompt: '' }); // Default settings for cloning
+                const dataUrl = await generateImageFromPrompt(session.generated.prompt, currentSettings);
                 setCloningSessions(prev => prev.map((s, idx) =>
                     idx === i ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
                 ));
@@ -451,6 +479,20 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
 
     return (
         <div className="space-y-10 animate-in fade-in zoom-in duration-500 pb-32">
+            <style>
+                {`
+                    @keyframes heartbeat {
+                        0% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(236, 72, 153, 0.5)); border-color: rgba(236, 72, 153, 0.3); }
+                        14% { transform: scale(1.02); filter: drop-shadow(0 0 15px rgba(236, 72, 153, 0.8)); border-color: rgba(236, 72, 153, 0.6); }
+                        28% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(236, 72, 153, 0.5)); border-color: rgba(236, 72, 153, 0.3); }
+                        42% { transform: scale(1.02); filter: drop-shadow(0 0 15px rgba(236, 72, 153, 0.8)); border-color: rgba(236, 72, 153, 0.6); }
+                        70% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(236, 72, 153, 0.5)); border-color: rgba(236, 72, 153, 0.3); }
+                    }
+                    .animate-heartbeat {
+                        animation: heartbeat 1.5s ease-in-out infinite;
+                    }
+                `}
+            </style>
             {cloningSessions.length > 0 ? (
                 // ── CLONING WORKSPACE ─────────────────────────────
                 <div className="max-w-7xl mx-auto px-4">
@@ -497,6 +539,94 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 <i className="fa-solid fa-trash mr-2"></i> Clear Workspace
                             </button>
                         </div>
+                    </div>
+
+                    {/* ═══ Generation Settings Panel ═══ */}
+                    <div className="bg-[#0d1425] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mb-8">
+                        <button
+                            onClick={() => setSettingsOpen(!settingsOpen)}
+                            className="w-full px-8 py-5 flex items-center justify-between text-left hover:bg-[#111b33] transition-colors"
+                        >
+                            <h3 className="text-lg font-black uppercase tracking-widest text-slate-300">
+                                <i className="fa-solid fa-sliders text-pink-400 mr-3"></i>
+                                Clone Settings
+                            </h3>
+                            <div className="flex items-center gap-4">
+                                {!settingsOpen && (
+                                    <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                                        {aspectRatio || 'Auto'} · {imageSize}
+                                        {negativePrompt && ' · Neg'}
+                                    </span>
+                                )}
+                                <i className={`fa-solid fa-chevron-${settingsOpen ? 'up' : 'down'} text-slate-500 text-sm transition-transform`}></i>
+                            </div>
+                        </button>
+
+                        {settingsOpen && (
+                            <div className="px-8 pb-8 pt-2 border-t border-white/5">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    {/* Aspect Ratio */}
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                                            <i className="fa-solid fa-crop text-sky-400 mr-2"></i>
+                                            Aspect Ratio
+                                        </label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {ASPECT_RATIOS.map(ar => (
+                                                <button
+                                                    key={ar.value}
+                                                    onClick={() => setAspectRatio(ar.value)}
+                                                    className={`px-3 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all border ${aspectRatio === ar.value
+                                                        ? 'bg-sky-500/20 border-sky-500/50 text-sky-300 shadow-lg shadow-sky-500/10'
+                                                        : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-sky-500/30 hover:text-slate-300'
+                                                        }`}
+                                                >
+                                                    {ar.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Resolution */}
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                                            <i className="fa-solid fa-expand text-amber-400 mr-2"></i>
+                                            Resolution
+                                        </label>
+                                        <div className="space-y-2">
+                                            {RESOLUTIONS.map(r => (
+                                                <button
+                                                    key={r.value}
+                                                    onClick={() => setImageSize(r.value)}
+                                                    className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left ${imageSize === r.value
+                                                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-lg shadow-amber-500/10'
+                                                        : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-amber-500/30 hover:text-slate-300'
+                                                        }`}
+                                                >
+                                                    {r.value === '4K' && <i className="fa-solid fa-crown text-amber-400 mr-2"></i>}
+                                                    {r.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Negative Prompt */}
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                                            <i className="fa-solid fa-ban text-red-400 mr-2"></i>
+                                            Negative Prompt
+                                        </label>
+                                        <textarea
+                                            value={negativePrompt}
+                                            onChange={(e) => setNegativePrompt(e.target.value)}
+                                            placeholder="Things to avoid... e.g. blurry, watermark, text, low quality, deformed"
+                                            rows={5}
+                                            className="w-full bg-[#161d2f] border border-white/5 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-red-500/30 focus:ring-1 focus:ring-red-500/20 resize-none transition-all"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="space-y-4">
@@ -570,30 +700,43 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                         </div>
                                     </div>
 
-                                    <div className="aspect-video bg-[#161d2f] rounded-2xl overflow-hidden border border-white/5 relative flex items-center justify-center group shrink-0">
+                                    <div className={`aspect-video bg-[#161d2f] rounded-2xl overflow-hidden border relative flex items-center justify-center group shrink-0 transition-all duration-300
+                                        ${(session.generated.analysisStatus === 'analyzing' || session.generated.status === 'generating') ? 'animate-heartbeat border-pink-500' : 'border-white/5 shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]'}
+                                    `}>
                                         {session.generated.dataUrl || session.generated.upscaledUrl ? (
                                             <img src={session.generated.upscaledUrl || session.generated.dataUrl!} alt="Generated" className="w-full h-full object-contain" />
                                         ) : (
                                             <div className="text-slate-600 text-center p-4">
                                                 {session.generated.analysisStatus === 'error' ? (
                                                     <>
-                                                        <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2"></i>
-                                                        <p className="text-xs text-rose-400">{session.generated.error || "Vision Analysis Failed"}</p>
+                                                        <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2 filter drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]"></i>
+                                                        <p className="text-xs text-rose-400 font-bold">{session.generated.error || "Vision Analysis Failed"}</p>
                                                     </>
                                                 ) : session.generated.status === 'error' ? (
                                                     <>
-                                                        <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2"></i>
-                                                        <p className="text-xs text-rose-400">{session.generated.error}</p>
+                                                        <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2 filter drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]"></i>
+                                                        <p className="text-xs text-rose-400 font-bold">{session.generated.error}</p>
                                                     </>
                                                 ) : session.generated.analysisStatus === 'analyzing' ? (
                                                     <>
-                                                        <i className="fa-solid fa-eye text-2xl mb-2 text-pink-400 animate-pulse"></i>
-                                                        <p className="text-[10px] font-bold uppercase tracking-widest text-pink-400">Analyzing</p>
+                                                        <i className="fa-solid fa-eye text-3xl mb-3 text-pink-400 filter drop-shadow-[0_0_8px_rgba(236,72,153,0.8)]"></i>
+                                                        <p className="text-[12px] font-black uppercase tracking-[0.2em] text-pink-400 drop-shadow-[0_0_5px_rgba(236,72,153,0.5)]">Analyzing</p>
+                                                        <div className="w-16 h-1 bg-white/10 rounded-full mt-3 overflow-hidden mx-auto">
+                                                            <div className="w-1/2 h-full bg-pink-500 rounded-full animate-[progress_1s_ease-in-out_infinite]"></div>
+                                                        </div>
+                                                    </>
+                                                ) : session.generated.status === 'generating' ? (
+                                                    <>
+                                                        <i className="fa-solid fa-palette text-3xl mb-3 text-violet-400 filter drop-shadow-[0_0_8px_rgba(167,139,250,0.8)]"></i>
+                                                        <p className="text-[12px] font-black uppercase tracking-[0.2em] text-violet-400 drop-shadow-[0_0_5px_rgba(167,139,250,0.5)]">Drawing</p>
+                                                        <div className="w-16 h-1 bg-white/10 rounded-full mt-3 overflow-hidden mx-auto">
+                                                            <div className="w-1/2 h-full bg-violet-500 rounded-full animate-[progress_1s_ease-in-out_infinite]"></div>
+                                                        </div>
                                                     </>
                                                 ) : session.generated.analysisStatus === 'done' ? (
                                                     <>
-                                                        <i className="fa-solid fa-dna text-2xl mb-2 opacity-20"></i>
-                                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Ready to Clone</p>
+                                                        <i className="fa-solid fa-dna text-2xl mb-2 opacity-30 mix-blend-screen text-amber-100"></i>
+                                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-50">Ready to Clone</p>
                                                     </>
                                                 ) : (
                                                     <>
