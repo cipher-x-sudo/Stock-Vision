@@ -503,14 +503,52 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                         {cloningSessions.map((session, i) => (
                             <div key={session.id} className="bg-[#0d1425] p-6 rounded-[2rem] border border-white/5 flex flex-col lg:flex-row gap-8 shadow-xl">
                                 {/* Left: Original */}
-                                <div className="flex-1 space-y-3">
+                                <div className="flex-1 space-y-3 flex flex-col">
                                     <div className="flex items-center justify-between">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Reference</span>
                                         <span className="text-[10px] font-bold text-slate-600 truncate max-w-[100px]">{session.original.id}</span>
                                     </div>
-                                    <div className="aspect-video bg-black/50 rounded-2xl overflow-hidden border border-white/5 relative group">
+                                    <div className="aspect-video bg-black/50 rounded-2xl overflow-hidden border border-white/5 relative group shrink-0">
                                         <img src={session.original.thumbnailUrl} alt="Original" className="w-full h-full object-contain" />
                                         <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded text-[10px] text-white font-bold backdrop-blur-sm">{session.original.title}</div>
+                                    </div>
+
+                                    {/* Reference Details */}
+                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex flex-col flex-1 gap-4 min-h-[150px]">
+                                        <div className="grid grid-cols-2 gap-4 shrink-0">
+                                            <div>
+                                                <span className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Creator</span>
+                                                <span className="text-xs text-slate-300 truncate block" title={session.original.creator}>{session.original.creator}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Downloads</span>
+                                                <span className="text-xs text-emerald-400 font-mono">{session.original.downloads?.toLocaleString() || '0'}</span>
+                                            </div>
+                                            {session.original.dimensions && (
+                                                <div>
+                                                    <span className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Resolution</span>
+                                                    <span className="text-xs text-slate-300">{session.original.dimensions}</span>
+                                                </div>
+                                            )}
+                                            {session.original.uploadDate && (
+                                                <div>
+                                                    <span className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Upload Date</span>
+                                                    <span className="text-xs text-slate-300">{new Date(session.original.uploadDate).toLocaleDateString()}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {session.original.keywords && session.original.keywords.length > 0 && (
+                                            <div className="pt-3 border-t border-white/5 flex-1 flex flex-col min-h-0">
+                                                <span className="text-[10px] font-bold uppercase text-slate-500 block mb-2 shrink-0">Keywords ({session.original.keywords.length})</span>
+                                                <div className="flex flex-wrap content-start gap-1 overflow-y-auto pr-2 custom-scrollbar max-h-40">
+                                                    {session.original.keywords.map(kw => (
+                                                        <span key={kw} className="px-2 py-1 bg-white/5 text-slate-400 text-[10px] rounded-md border border-white/10 hover:border-pink-500/30 hover:text-pink-300 transition-colors whitespace-nowrap">
+                                                            {kw}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -522,7 +560,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 </div>
 
                                 {/* Right: Generated */}
-                                <div className="flex-1 space-y-3">
+                                <div className="flex-1 space-y-3 flex flex-col">
                                     <div className="flex items-center justify-between">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-pink-500">Clone</span>
                                         <div className="flex gap-2">
@@ -532,7 +570,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                         </div>
                                     </div>
 
-                                    <div className="aspect-video bg-[#161d2f] rounded-2xl overflow-hidden border border-white/5 relative flex items-center justify-center group">
+                                    <div className="aspect-video bg-[#161d2f] rounded-2xl overflow-hidden border border-white/5 relative flex items-center justify-center group shrink-0">
                                         {session.generated.dataUrl || session.generated.upscaledUrl ? (
                                             <img src={session.generated.upscaledUrl || session.generated.dataUrl!} alt="Generated" className="w-full h-full object-contain" />
                                         ) : (
@@ -572,8 +610,31 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                         )}
                                     </div>
 
+                                    {/* Generated Details */}
+                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex flex-col flex-1 gap-2 overflow-hidden min-h-[150px]">
+                                        <div className="flex justify-between items-center shrink-0">
+                                            <span className="text-[10px] font-bold uppercase text-pink-500">Vision Analysis</span>
+                                            {session.generated.prompt?.metadata?.tags && (
+                                                <span className="text-[10px] text-slate-500 uppercase truncate max-w-[150px]">{session.generated.prompt.metadata.tags.slice(0, 3).join(', ')}...</span>
+                                            )}
+                                        </div>
+
+                                        <div className="text-[11px] text-slate-300 leading-relaxed bg-black/30 p-3 rounded-lg border border-white/5 overflow-y-auto custom-scrollbar flex-1 whitespace-pre-wrap">
+                                            {session.generated.prompt ? (
+                                                <>
+                                                    <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Scene</span> {session.generated.prompt.scene}</div>
+                                                    <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Style</span> {session.generated.prompt.style}</div>
+                                                    <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Composition</span> {session.generated.prompt.shot?.composition || 'N/A'}</div>
+                                                    <div><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Lighting</span> {session.generated.prompt.lighting?.primary || 'N/A'}</div>
+                                                </>
+                                            ) : (
+                                                <span className="text-slate-500 italic flex items-center justify-center h-full">Waiting for analysis...</span>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     {/* Action Bar */}
-                                    <div className="flex gap-2 justify-end pt-2">
+                                    <div className="flex gap-2 justify-end pt-1 shrink-0">
                                         <button
                                             onClick={() => generateOneSession(i)}
                                             disabled={generating || session.generated.status === 'generating' || session.generated.analysisStatus !== 'done'}
