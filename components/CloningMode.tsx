@@ -534,6 +534,65 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         }
     }, [cloningSessions, generateVideo, threadCount]);
 
+    const retryAllFailed = useCallback(async () => {
+        // 1. Reset analysis errors to idle so the useEffect picks them up
+        setCloningSessions(prev => prev.map(s => {
+            let next = { ...s };
+            if (next.generated.analysisStatus === 'error') {
+                next.generated.analysisStatus = 'idle';
+                next.generated.error = undefined;
+            }
+            return next;
+        }));
+
+        // 2. Retry image generation for those with status 'error'
+        const failedImages = cloningSessions
+            .map((s, i) => ({ session: s, index: i }))
+            .filter(item => item.session.generated.status === 'error');
+
+        for (let i = 0; i < failedImages.length; i += threadCount) {
+            if (abortRef.current) break;
+            const chunk = failedImages.slice(i, i + threadCount);
+            setCloningSessions(prev => prev.map((s, idx) =>
+                chunk.some(c => c.index === idx) ? { ...s, generated: { ...s.generated, status: 'generating', error: undefined } } : s
+            ));
+            await Promise.allSettled(chunk.map(async ({ session, index }) => {
+                try {
+                    const dataUrl = await generateImageFromPrompt(session.generated.prompt!, currentSettings);
+                    setCloningSessions(prev => prev.map((s, idx) =>
+                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
+                    ));
+                } catch (err: any) {
+                    setCloningSessions(prev => prev.map((s, idx) =>
+                        idx === index ? { ...s, generated: { ...s.generated, status: 'error', error: err.message } } : s
+                    ));
+                }
+            }));
+        }
+
+        // 3. Retry video generation for those with videoStatus 'error'
+        const failedVideos = cloningSessions
+            .map((s, i) => ({ session: s, index: i }))
+            .filter(item => item.session.generated.videoStatus === 'error');
+
+        for (let i = 0; i < failedVideos.length; i += threadCount) {
+            if (abortRef.current) break;
+            const chunk = failedVideos.slice(i, i + threadCount);
+            await Promise.allSettled(chunk.map(({ index }) => generateVideo(index)));
+        }
+
+        // 4. Retry upscale for those with upscaleStatus 'error'
+        const failedUpscales = cloningSessions
+            .map((s, i) => ({ session: s, index: i }))
+            .filter(item => item.session.generated.upscaleStatus === 'error');
+
+        for (let i = 0; i < failedUpscales.length; i += threadCount) {
+            if (abortRef.current) break;
+            const chunk = failedUpscales.slice(i, i + threadCount);
+            await Promise.allSettled(chunk.map(({ index }) => upscaleSession(index)));
+        }
+    }, [cloningSessions, threadCount, generateVideo, upscaleSession, currentSettings]);
+
     const [isZipping, setIsZipping] = useState(false);
     const downloadAllAsZip = useCallback(async () => {
         const completedSessions = cloningSessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
@@ -668,6 +727,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 ) : (
                                     <><i className="fa-solid fa-file-zipper mr-2"></i> Download All (ZIP)</>
                                 )}
+                            </button>
+
+                            <button
+                                onClick={retryAllFailed}
+                                className="px-6 py-3 bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 rounded-xl font-black text-xs uppercase tracking-widest text-red-300 shadow-lg shadow-red-500/10 transition-all"
+                            >
+                                <i className="fa-solid fa-rotate-right mr-2"></i> Retry Failed
                             </button>
 
                             <button
@@ -903,10 +969,16 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                         ) : (
                                             <div className="text-slate-600 text-center p-4">
                                                 {session.generated.analysisStatus === 'error' ? (
-                                                    <>
+                                                    <div className="flex flex-col items-center">
                                                         <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2 filter drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]"></i>
-                                                        <p className="text-xs text-rose-400 font-bold">{session.generated.error || "Vision Analysis Failed"}</p>
-                                                    </>
+                                                        <p className="text-xs text-rose-400 font-bold mb-4">{session.generated.error || "Vision Analysis Failed"}</p>
+                                                        <button
+                                                            onClick={() => analyzeSession(session.id, session.original)}
+                                                            className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/50 rounded-xl text-rose-300 font-bold text-[10px] uppercase transition-all shadow-lg flex items-center"
+                                                        >
+                                                            <i className="fa-solid fa-rotate-right mr-2"></i> Retry Analysis
+                                                        </button>
+                                                    </div>
                                                 ) : session.generated.status === 'error' ? (
                                                     <>
                                                         <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2 filter drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]"></i>
@@ -1020,10 +1092,16 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                         ) : (
                                             <div className="text-slate-600 text-center p-4">
                                                 {session.generated.videoStatus === 'error' ? (
-                                                    <>
+                                                    <div className="flex flex-col items-center">
                                                         <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2 filter drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]"></i>
-                                                        <p className="text-xs text-rose-400 font-bold">{session.generated.error}</p>
-                                                    </>
+                                                        <p className="text-[10px] text-rose-400 font-bold text-center px-4 mb-4 line-clamp-2">{session.generated.error}</p>
+                                                        <button
+                                                            onClick={() => generateVideo(i)}
+                                                            className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/50 rounded-xl text-rose-300 font-bold text-[10px] uppercase transition-all shadow-lg flex items-center"
+                                                        >
+                                                            <i className="fa-solid fa-rotate-right mr-2"></i> Retry Video
+                                                        </button>
+                                                    </div>
                                                 ) : session.generated.videoStatus === 'planning' || session.generated.videoStatus === 'generating' ? (
                                                     <>
                                                         <i className="fa-solid fa-video text-3xl mb-3 text-violet-400 filter drop-shadow-[0_0_8px_rgba(139,92,246,0.8)]"></i>

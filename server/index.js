@@ -1253,13 +1253,13 @@ Output JSON matching this schema: ${JSON.stringify(DIRECTOR_TEMPLATE)}`
     // In a real scenario, you'd call the Veo API here.
 
     // START VEO INTEGRATION PLACEHOLDER
-    // Note: To use Veo, you need access to the specific model (veo-2.0-generate-preview-001)
+    // Note: To use Veo, you need access to the specific model (veo-3.1-fast-generate-preview)
     // and potentially different API handling.
 
     let videoUrl = "";
     try {
       const veoResponse = await genai.models.generateContent({
-        model: "veo-2.0-generate-preview-001",
+        model: "veo-3.1-fast-generate-preview",
         contents: [
           {
             parts: [
