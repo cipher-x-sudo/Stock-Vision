@@ -71,12 +71,13 @@ export const renderVideoFromPlan = async (
     prompt?: string,
     plan?: any,
     isFast: boolean = false,
+    videoAspectRatio?: string,
     videoResolution?: string
 ): Promise<{ videoUrl: string }> => {
     const res = await fetch(`${API_BASE}/api/generate-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: imageDataUrl, prompt, plan, fast: isFast, videoResolution }),
+        body: JSON.stringify({ image: imageDataUrl, prompt, plan, fast: isFast, videoAspectRatio, videoResolution }),
     });
 
     if (!res.ok) {

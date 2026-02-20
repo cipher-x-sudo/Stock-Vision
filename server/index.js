@@ -1254,7 +1254,7 @@ app.post("/api/generate-video", async (req, res) => {
   // We may need more time for Veo processing. Express usually times out after a few minutes,
   // but we will do our best to poll. If Railway kills it at 100s, this may still fail.
   try {
-    const { image, prompt, plan, fast, videoResolution } = req.body;
+    const { image, prompt, plan, fast, videoAspectRatio, videoResolution } = req.body;
     if (!image) return res.status(400).json({ error: "Missing image data" });
 
     let mimeType, base64Data;
@@ -1286,7 +1286,8 @@ app.post("/api/generate-video", async (req, res) => {
       model: modelName,
       prompt: videoPrompt,
       config: {
-        ...(videoResolution && { aspectRatio: videoResolution }), // Add custom resolution/ratio logic here if supported
+        ...(videoAspectRatio && { aspectRatio: videoAspectRatio }),
+        ...(videoResolution && { resolution: videoResolution }),
         referenceImages: [
           {
             image: { imageBytes: base64Data, mimeType },

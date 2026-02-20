@@ -44,7 +44,8 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
     const [aspectRatio, setAspectRatio] = useState('');
     const [imageSize, setImageSize] = useState('1K');
     const [negativePrompt, setNegativePrompt] = useState('');
-    const [videoResolution, setVideoResolution] = useState('16:9');
+    const [videoAspectRatio, setVideoAspectRatio] = useState('16:9');
+    const [videoResolution, setVideoResolution] = useState('1080p');
     const [settingsOpen, setSettingsOpen] = useState(true);
     const [manualPrompt, setManualPrompt] = useState('');
 
@@ -266,7 +267,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                 i === index ? { ...it, videoStatus: 'generating' } : it
             ));
 
-            const result = await renderVideoFromPlan(src, item.prompt.scene, plan, fast, videoResolution);
+            const result = await renderVideoFromPlan(src, item.prompt.scene, plan, fast, videoAspectRatio, videoResolution);
 
             setItems(prev => prev.map((it, i) =>
                 i === index ? { ...it, videoUrl: result.videoUrl, videoStatus: 'done' } : it
@@ -462,23 +463,49 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                                 </div>
                             </div>
 
+                            {/* Video Aspect Ratio */}
+                            <div>
+                                <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                                    <i className="fa-solid fa-crop-simple text-violet-400 mr-2"></i>
+                                    Video Aspect Ratio
+                                </label>
+                                <div className="space-y-2">
+                                    {[
+                                        { value: '16:9', label: 'Landscape (16:9)' },
+                                        { value: '9:16', label: 'Portrait (9:16)' }
+                                    ].map(r => (
+                                        <button
+                                            key={r.value}
+                                            onClick={() => setVideoAspectRatio(r.value)}
+                                            className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left flex justify-between items-center ${videoAspectRatio === r.value
+                                                ? 'bg-violet-500/20 border-violet-500/50 text-violet-300 shadow-lg shadow-violet-500/10'
+                                                : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-violet-500/30 hover:text-slate-300'
+                                                }`}
+                                        >
+                                            {r.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             {/* Video Resolution */}
                             <div>
                                 <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
-                                    <i className="fa-solid fa-expand text-violet-400 mr-2"></i>
+                                    <i className="fa-solid fa-expand text-pink-400 mr-2"></i>
                                     Video Resolution
                                 </label>
                                 <div className="space-y-2">
                                     {[
-                                        { value: '16:9', label: '1080p Landscape (16:9)' },
-                                        { value: '9:16', label: '1080p Portrait (9:16)' }
+                                        { value: '720p', label: '720p' },
+                                        { value: '1080p', label: '1080p' },
+                                        { value: '4k', label: '4k UHD' }
                                     ].map(r => (
                                         <button
                                             key={r.value}
                                             onClick={() => setVideoResolution(r.value)}
                                             className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left flex justify-between items-center ${videoResolution === r.value
-                                                    ? 'bg-violet-500/20 border-violet-500/50 text-violet-300 shadow-lg shadow-violet-500/10'
-                                                    : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-violet-500/30 hover:text-slate-300'
+                                                ? 'bg-pink-500/20 border-pink-500/50 text-pink-300 shadow-lg shadow-pink-500/10'
+                                                : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-pink-500/30 hover:text-slate-300'
                                                 }`}
                                         >
                                             {r.label}
