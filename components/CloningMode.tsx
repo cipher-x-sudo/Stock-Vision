@@ -1032,16 +1032,33 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                             </div>
                                         )}
                                     </div>
-                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex-1 min-h-[50px] overflow-hidden relative group hover:border-violet-500/30 transition-colors flex flex-col justify-center">
-                                        <p className="text-[10px] sm:text-xs text-slate-300 line-clamp-4 leading-relaxed font-medium group-hover:text-slate-200" title={session.generated.videoPlan ? JSON.stringify(session.generated.videoPlan, null, 2) : undefined}>
-                                            {session.generated.videoPlan ? (
-                                                <>
-                                                    <i className="fa-solid fa-scroll text-violet-400 mr-2"></i>
-                                                    <span className="text-violet-300 font-bold">Concept: </span>
-                                                    {JSON.parse(session.generated.videoPlan as string | unknown as string)?.concept || "AI Directed Scene"}
-                                                </>
-                                            ) : <span className="text-slate-600 italic">Director mode planning metadata...</span>}
-                                        </p>
+                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex-1 min-h-[50px] overflow-hidden group hover:border-violet-500/30 transition-colors flex flex-col justify-start">
+                                        {session.generated.videoPlan ? (() => {
+                                            try {
+                                                const plan = typeof session.generated.videoPlan === 'string'
+                                                    ? JSON.parse(session.generated.videoPlan)
+                                                    : session.generated.videoPlan as any;
+
+                                                return (
+                                                    <div className="text-[11px] text-slate-300 leading-relaxed bg-black/30 p-3 rounded-lg border border-white/5 overflow-y-auto custom-scrollbar h-full whitespace-pre-wrap">
+                                                        <div className="mb-2"><span className="text-violet-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Concept</span> {plan.concept || "AI Directed Scene"}</div>
+                                                        <div className="mb-2"><span className="text-violet-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Camera Movement</span> {plan.camera_movement || 'Static'}</div>
+                                                        <div className="mb-2"><span className="text-violet-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Subject Action</span> {plan.subject_action || 'Ambient motion'}</div>
+                                                        <div className="mb-2"><span className="text-violet-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Visual Style & Effects</span> {plan.visual_style_and_effects || plan.style || 'Cinematic'}</div>
+                                                        <div><span className="text-violet-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Pacing</span> {plan.pacing || 'Natural'}</div>
+                                                    </div>
+                                                );
+                                            } catch (e) {
+                                                // Fallback for raw text/malformed JSON
+                                                return (
+                                                    <p className="text-[10px] sm:text-xs text-slate-300 line-clamp-4 leading-relaxed font-medium group-hover:text-slate-200">
+                                                        <i className="fa-solid fa-scroll text-violet-400 mr-2"></i>
+                                                        <span className="text-violet-300 font-bold">Raw Plan: </span>
+                                                        {session.generated.videoPlan as string}
+                                                    </p>
+                                                );
+                                            }
+                                        })() : <span className="text-slate-600 italic">Director mode planning metadata will appear here...</span>}
                                     </div>
                                 </div>
                             </div>
