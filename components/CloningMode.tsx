@@ -7,7 +7,7 @@ import {
     getFavoriteContributors,
     toggleFavoriteContributor
 } from '../services/trackAdobeService';
-import { generateImageFromPrompt, upscaleImage, generateVideoFromImage } from '../services/imageGenService';
+import { generateImageFromPrompt, upscaleImage, generateVideoPlanFromImage, renderVideoFromPlan } from '../services/imageGenService';
 import type { GenerationSettings } from '../services/imageGenService';
 import ScanConfigModal from './ScanConfigModal';
 import Portal from './Portal';
@@ -507,10 +507,26 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         setCloningSessions(prev => prev.map((s, i) =>
             i === index ? { ...s, generated: { ...s.generated, videoStatus: 'planning', error: undefined } } : s
         ));
+
+        let plan = session.generated.videoPlan;
+
         try {
-            const result = await generateVideoFromImage(src, session.generated.prompt.scene, videoFastMode);
+            if (!plan) {
+                const planResult = await generateVideoPlanFromImage(src, session.generated.prompt.scene);
+                plan = planResult.plan;
+                setCloningSessions(prev => prev.map((s, i) =>
+                    i === index ? { ...s, generated: { ...s.generated, videoPlan: plan } } : s
+                ));
+            }
+
             setCloningSessions(prev => prev.map((s, i) =>
-                i === index ? { ...s, generated: { ...s.generated, videoUrl: result.videoUrl, videoPlan: result.plan, videoStatus: 'done' } } : s
+                i === index ? { ...s, generated: { ...s.generated, videoStatus: 'generating' } } : s
+            ));
+
+            const result = await renderVideoFromPlan(src, session.generated.prompt.scene, plan, videoFastMode);
+
+            setCloningSessions(prev => prev.map((s, i) =>
+                i === index ? { ...s, generated: { ...s.generated, videoUrl: result.videoUrl, videoStatus: 'done' } } : s
             ));
         } catch (err: any) {
             setCloningSessions(prev => prev.map((s, i) =>

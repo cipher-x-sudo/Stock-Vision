@@ -48,15 +48,34 @@ export const upscaleImage = async (imageDataUrl: string): Promise<string> => {
     return data.image;
 };
 
-export const generateVideoFromImage = async (
+export const generateVideoPlanFromImage = async (
+    imageDataUrl: string,
+    prompt?: string
+): Promise<{ plan: any }> => {
+    const res = await fetch(`${API_BASE}/api/generate-video-plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: imageDataUrl, prompt }),
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    return await res.json();
+};
+
+export const renderVideoFromPlan = async (
     imageDataUrl: string,
     prompt?: string,
+    plan?: any,
     isFast: boolean = false
-): Promise<{ videoUrl: string; plan: any; prompt: string }> => {
+): Promise<{ videoUrl: string }> => {
     const res = await fetch(`${API_BASE}/api/generate-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: imageDataUrl, prompt, fast: isFast }),
+        body: JSON.stringify({ image: imageDataUrl, prompt, plan, fast: isFast }),
     });
 
     if (!res.ok) {

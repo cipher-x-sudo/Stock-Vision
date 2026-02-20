@@ -1200,16 +1200,13 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
   }
 });
 
-// ── Generate Video (Director Mode + Veo) ──────────────────────
-const DIRECTOR_TEMPLATE = JSON.parse(fs.readFileSync(path.join(__dirname, "director_template.json"), "utf8"));
-
-app.post("/api/generate-video", async (req, res) => {
+// ── Video Plan Generation (Director Mode) ──────────────────────
+app.post("/api/generate-video-plan", async (req, res) => {
   try {
-    const { image, prompt, fast } = req.body;
+    const { image, prompt } = req.body;
     if (!image) return res.status(400).json({ error: "Missing image data" });
 
     let mimeType, base64Data;
-    // Check if input is a URL (from our storage)
     if (image.startsWith("/api/storage/")) {
       const relPath = image.replace("/api/storage", "");
       const filePath = path.join(STORAGE_DIR, relPath);
@@ -1228,18 +1225,13 @@ app.post("/api/generate-video", async (req, res) => {
       base64Data = match[2];
     }
 
-    // 1. Generate Director's Plan (Gemini 2.0 Flash)
     const planResponse = await generateWithFallback({
       model: "gemini-2.0-flash",
       contents: {
         parts: [
+          { inlineData: { mimeType, data: base64Data } },
           {
-            inlineData: { mimeType, data: base64Data }
-          },
-          {
-            text: `You are a film director. Analyze this image and the user's request: "${prompt}".
-Create a detailed video generation plan.
-Output JSON matching this schema: ${JSON.stringify(DIRECTOR_TEMPLATE)}`
+            text: `You are a film director. Analyze this image and the user's request: "${prompt}".\nCreate a detailed video generation plan.\nOutput JSON matching this schema: ${JSON.stringify(DIRECTOR_TEMPLATE)}`
           }
         ]
       },
@@ -1247,50 +1239,94 @@ Output JSON matching this schema: ${JSON.stringify(DIRECTOR_TEMPLATE)}`
     });
 
     const plan = JSON.parse(planResponse.text || "{}");
+    res.json({ plan });
 
-    // 2. Generate Video via Veo (Mock for now or actual integration if key present)
-    // For now, we'll simulate a video generation response since Veo API isn't fully public/integrated here yet
-    // In a real scenario, you'd call the Veo API here.
+  } catch (err) {
+    console.error("Video plan generation error:", err.message || err);
+    res.status(500).json({ error: err.message || "Video plan generation failed" });
+  }
+});
 
-    // START VEO INTEGRATION PLACEHOLDER
-    // Note: To use Veo, you need access to the specific model (veo-3.1-fast-generate-preview)
-    // and potentially different API handling.
+// ── Generate Video (Veo) ───────────────────────────────────────
+app.post("/api/generate-video", async (req, res) => {
+  // We may need more time for Veo processing. Express usually times out after a few minutes,
+  // but we will do our best to poll. If Railway kills it at 100s, this may still fail.
+  try {
+    const { image, prompt, plan, fast } = req.body;
+    if (!image) return res.status(400).json({ error: "Missing image data" });
+
+    let mimeType, base64Data;
+    if (image.startsWith("/api/storage/")) {
+      const relPath = image.replace("/api/storage", "");
+      const filePath = path.join(STORAGE_DIR, relPath);
+      if (fs.existsSync(filePath)) {
+        const buffer = fs.readFileSync(filePath);
+        base64Data = buffer.toString('base64');
+        mimeType = "image/png";
+        if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) mimeType = "image/jpeg";
+      } else {
+        return res.status(404).json({ error: "Source image file not found" });
+      }
+    } else {
+      const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (!match) return res.status(400).json({ error: "Invalid image data" });
+      mimeType = match[1];
+      base64Data = match[2];
+    }
+
+    const modelName = fast ? "veo-3.1-fast-generate-preview" : "veo-3.1-generate-preview";
+    const videoPrompt = plan?.prompt || plan?.scene || prompt || "A sleek cinematic video of this scene.";
+
+    console.log(`Starting Veo video generation (${modelName}) with prompt: ${videoPrompt.substring(0, 50)}...`);
+
+    // Call the Veo specific endpoint
+    let operation = await genai.models.generateVideos({
+      model: modelName,
+      prompt: videoPrompt,
+      config: {
+        referenceImages: [
+          {
+            image: { imageBytes: base64Data, mimeType },
+            referenceType: "asset"
+          }
+        ]
+      }
+    });
+
+    console.log("Operation started: ", operation.name);
+
+    // Poll the operation status until the video is ready.
+    while (!operation.done) {
+      console.log("Waiting for video generation to complete...", operation.name || "");
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      operation = await genai.operations.getVideosOperation({
+        operation: operation,
+      });
+    }
 
     let videoUrl = "";
-    try {
-      const veoResponse = await genai.models.generateContent({
-        model: "veo-3.1-fast-generate-preview",
-        contents: [
-          {
-            parts: [
-              { text: `Create a video based on this image. Prompt: ${plan.prompt || prompt}` },
-              { inlineData: { mimeType, data: base64Data } }
-            ]
-          }
-        ],
-        config: {
-          responseModalities: ["video"]
-        }
-      });
+    if (operation.response && operation.response.generatedVideos && operation.response.generatedVideos.length > 0) {
+      const generatedVideoFile = operation.response.generatedVideos[0].video;
 
-      // Extract video
-      for (const part of veoResponse.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          const vidMime = part.inlineData.mimeType || "video/mp4";
-          const vidData = part.inlineData.data;
-          const vidFilename = `vid-${Date.now()}-${Math.random().toString(36).substr(2, 6)}.mp4`;
-          const vidPath = path.join(VIDEOS_DIR, vidFilename);
-          fs.writeFileSync(vidPath, Buffer.from(vidData, 'base64'));
-          videoUrl = `/api/storage/videos/${vidFilename}`;
-        }
+      const vidFilename = `vid-${Date.now()}-${Math.random().toString(36).substr(2, 6)}.mp4`;
+      const vidPath = path.join(VIDEOS_DIR, vidFilename);
+
+      try {
+        await genai.files.download({
+          file: generatedVideoFile,
+          downloadPath: vidPath
+        });
+        videoUrl = `/api/storage/videos/${vidFilename}`;
+        console.log(`Video downloaded successfully to ${videoUrl}`);
+      } catch (dlErr) {
+        console.error("Failed to download video file:", dlErr.message);
+        throw new Error("Video was generated but failed to download.");
       }
-    } catch (veoErr) {
-      console.warn("Veo generation failed, returning only plan:", veoErr.message);
-      // Fallback or error handling
+    } else {
+      throw new Error("Veo API completed but returned no video output.");
     }
-    // END VEO INTEGRATION PLACEHOLDER
 
-    res.json({ plan, videoUrl });
+    res.json({ videoUrl });
 
   } catch (err) {
     console.error("Video generation error:", err.message || err);

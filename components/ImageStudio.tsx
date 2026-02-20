@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { ImagePrompt, GeneratedImage } from '../types';
-import { generateImageFromPrompt, upscaleImage, generateVideoFromImage, getBatchHistory, loadBatch } from '../services/imageGenService';
+import { generateImageFromPrompt, upscaleImage, generateVideoPlanFromImage, renderVideoFromPlan, getBatchHistory, loadBatch } from '../services/imageGenService';
 import type { GenerationSettings, HistoryBatch } from '../services/imageGenService';
 import Portal from './Portal';
 
@@ -249,12 +249,26 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
             i === index ? { ...it, videoStatus: 'planning', error: undefined } : it
         ));
 
+        let plan = item.videoPlan;
+
         try {
-            // Note: We use the item's prompt scene as the base, but the backend will generate a new plan
-            const result = await generateVideoFromImage(src, item.prompt.scene, fast);
+            if (!plan) {
+                // Note: We use the item's prompt scene as the base
+                const planResult = await generateVideoPlanFromImage(src, item.prompt.scene);
+                plan = planResult.plan;
+                setItems(prev => prev.map((it, i) =>
+                    i === index ? { ...it, videoPlan: plan } : it
+                ));
+            }
 
             setItems(prev => prev.map((it, i) =>
-                i === index ? { ...it, videoUrl: result.videoUrl, videoPlan: result.plan, videoStatus: 'done' } : it
+                i === index ? { ...it, videoStatus: 'generating' } : it
+            ));
+
+            const result = await renderVideoFromPlan(src, item.prompt.scene, plan, fast);
+
+            setItems(prev => prev.map((it, i) =>
+                i === index ? { ...it, videoUrl: result.videoUrl, videoStatus: 'done' } : it
             ));
         } catch (err: any) {
             setItems(prev => prev.map((it, i) =>
