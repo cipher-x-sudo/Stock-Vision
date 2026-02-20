@@ -12,6 +12,11 @@ const CsvCloningMode: React.FC<CsvCloningModeProps> = ({ onClone }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [fileName, setFileName] = useState<string | null>(null);
 
+    // Filter states
+    const [minDownloads, setMinDownloads] = useState<number>(0);
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
+
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -22,7 +27,7 @@ const CsvCloningMode: React.FC<CsvCloningModeProps> = ({ onClone }) => {
             header: true,
             skipEmptyLines: true,
             complete: (results) => {
-                const parsedData: StockInsight[] = results.data.map((row: any) => ({
+                let parsedData: StockInsight[] = results.data.map((row: any) => ({
                     id: row['Asset ID'] || '',
                     title: row['Title'] || '',
                     thumbnailUrl: row['Thumbnail URL'] || '',
@@ -37,6 +42,22 @@ const CsvCloningMode: React.FC<CsvCloningModeProps> = ({ onClone }) => {
                     keywords: row['Keywords'] ? row['Keywords'].split(',').map((k: string) => k.trim()) : [],
                     isAI: false, // Default to false unless specified
                 })).filter(item => item.id && item.thumbnailUrl); // Filter out invalid rows
+
+                if (minDownloads > 0) {
+                    parsedData = parsedData.filter(item => (item.downloads || 0) >= minDownloads);
+                }
+
+                if (startDate || endDate) {
+                    const start = startDate ? new Date(startDate).getTime() : 0;
+                    const end = endDate ? new Date(endDate).getTime() : Infinity;
+
+                    parsedData = parsedData.filter(item => {
+                        if (!item.uploadDate) return false;
+                        const itemDate = new Date(item.uploadDate).getTime();
+                        if (isNaN(itemDate)) return false;
+                        return itemDate >= start && itemDate <= end;
+                    });
+                }
 
                 setData(parsedData);
             },
@@ -68,9 +89,47 @@ const CsvCloningMode: React.FC<CsvCloningModeProps> = ({ onClone }) => {
 
     return (
         <div className="space-y-6 animate-in fade-in zoom-in duration-500">
+            {/* Filter Configuration */}
+            <div className="bg-[#0d1425] rounded-[2rem] p-6 border border-[#1a2333] shadow-2xl flex flex-col md:flex-row gap-6">
+                <div className="flex-1">
+                    <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">
+                        <i className="fa-solid fa-calendar-days text-sky-400 mr-2"></i>
+                        Date Range Filter
+                    </label>
+                    <div className="flex gap-3">
+                        <input
+                            type="date"
+                            className="flex-1 bg-[#161d2f] text-slate-200 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider outline-none focus:border-pink-500/50 transition-all"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                        />
+                        <span className="text-slate-500 self-center font-bold">to</span>
+                        <input
+                            type="date"
+                            className="flex-1 bg-[#161d2f] text-slate-200 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider outline-none focus:border-pink-500/50 transition-all"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                        />
+                    </div>
+                </div>
+                <div className="w-full md:w-64">
+                    <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">
+                        <i className="fa-solid fa-download text-emerald-400 mr-2"></i>
+                        Min Downloads
+                    </label>
+                    <input
+                        type="number"
+                        min="0"
+                        className="w-full bg-[#161d2f] text-slate-200 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider outline-none focus:border-pink-500/50 transition-all"
+                        value={minDownloads}
+                        onChange={(e) => setMinDownloads(Number(e.target.value) || 0)}
+                    />
+                </div>
+            </div>
+
             {/* File Upload Section */}
             <div
-                className="border-2 border-dashed border-[#1a2333] hover:border-pink-500/50 rounded-[2rem] p-12 text-center transition-all cursor-pointer bg-[#0d1425] group"
+                className="border-2 border-dashed border-[#1a2333] hover:border-pink-500/50 rounded-[2rem] p-12 text-center transition-all cursor-pointer bg-[#0d1425] group relative"
                 onClick={() => fileInputRef.current?.click()}
             >
                 <input

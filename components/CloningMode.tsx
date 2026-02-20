@@ -12,6 +12,8 @@ import type { GenerationSettings } from '../services/imageGenService';
 import ScanConfigModal from './ScanConfigModal';
 import Portal from './Portal';
 import CsvCloningMode from './CsvCloningMode';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 interface CloningModeProps {
     onPromptsGenerated: (prompts: ImagePrompt[]) => void;
@@ -473,6 +475,54 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         abortRef.current = true;
     }, []);
 
+    const upscaleAllSessions = useCallback(async () => {
+        const upscalable = cloningSessions
+            .map((s, i) => ({ session: s, index: i }))
+            .filter(item => item.session.generated.dataUrl && item.session.generated.upscaleStatus !== 'done');
+
+        if (upscalable.length === 0) return;
+
+        for (const { index } of upscalable) {
+            await upscaleSession(index);
+        }
+    }, [cloningSessions, upscaleSession]);
+
+    const [isZipping, setIsZipping] = useState(false);
+    const downloadAllAsZip = useCallback(async () => {
+        const completedSessions = cloningSessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
+        if (completedSessions.length === 0) return;
+
+        setIsZipping(true);
+        try {
+            const zip = new JSZip();
+
+            // Helper to convert base64 to blob
+            const base64ToBlob = async (base64Url: string) => {
+                const res = await fetch(base64Url);
+                return await res.blob();
+            };
+
+            for (let i = 0; i < completedSessions.length; i++) {
+                const session = completedSessions[i];
+                const src = session.generated.upscaledUrl || session.generated.dataUrl;
+                if (!src) continue;
+
+                const blob = await base64ToBlob(src);
+                const is4K = !!session.generated.upscaledUrl;
+                const fileName = `cloned_asset_${session.original.id}${is4K ? '_4K' : ''}_${i + 1}.png`;
+
+                zip.file(fileName, blob);
+            }
+
+            const content = await zip.generateAsync({ type: 'blob' });
+            saveAs(content, `viral_clones_${new Date().toISOString().split('T')[0]}.zip`);
+        } catch (error) {
+            console.error("Failed to zip images:", error);
+        } finally {
+            setIsZipping(false);
+        }
+    }, [cloningSessions]);
+
     const progressPercent = cloningProgress.total > 0
         ? Math.round((cloningProgress.current / cloningProgress.total) * 100)
         : 0;
@@ -505,7 +555,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 {cloningSessions.length} active cloning session{cloningSessions.length !== 1 ? 's' : ''}
                             </p>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-4 flex-wrap justify-end">
                             <div className="flex items-center gap-2 bg-[#161d2f] px-3 py-1.5 rounded-xl border border-white/10">
                                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Threads</span>
                                 <input
@@ -517,6 +567,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     className="w-12 bg-transparent text-white font-bold text-center outline-none border-b border-transparent focus:border-pink-500 transition-colors"
                                 />
                             </div>
+
                             {!generating ? (
                                 <button
                                     onClick={generateAllSessions}
@@ -532,11 +583,31 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     <i className="fa-solid fa-stop mr-2"></i> Stop ({generationProgress.current}/{generationProgress.total})
                                 </button>
                             )}
+
+                            <button
+                                onClick={upscaleAllSessions}
+                                className="px-6 py-3 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 rounded-xl font-black text-xs uppercase tracking-widest text-amber-300 shadow-lg shadow-amber-500/10 transition-all"
+                            >
+                                <i className="fa-solid fa-wand-magic-sparkles mr-2"></i> Upscale All 4K
+                            </button>
+
+                            <button
+                                onClick={downloadAllAsZip}
+                                disabled={isZipping}
+                                className="px-6 py-3 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/50 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-black text-xs uppercase tracking-widest text-sky-300 shadow-lg shadow-sky-500/10 transition-all"
+                            >
+                                {isZipping ? (
+                                    <><i className="fa-solid fa-spinner fa-spin mr-2"></i> Zipping...</>
+                                ) : (
+                                    <><i className="fa-solid fa-file-zipper mr-2"></i> Download All (ZIP)</>
+                                )}
+                            </button>
+
                             <button
                                 onClick={clearWorkspace}
                                 className="px-6 py-3 bg-[#161d2f] hover:bg-[#1a2339] border border-white/10 rounded-xl font-black text-xs uppercase tracking-widest text-slate-400 transition-all"
                             >
-                                <i className="fa-solid fa-trash mr-2"></i> Clear Workspace
+                                <i className="fa-solid fa-trash mr-2"></i> Clear
                             </button>
                         </div>
                     </div>
