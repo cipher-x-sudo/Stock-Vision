@@ -942,10 +942,21 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                             </div>
                                         )}
                                     </div>
-                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex-1 min-h-[50px] overflow-hidden group hover:border-pink-500/30 transition-colors">
-                                        <p className="text-[10px] sm:text-xs text-slate-300 line-clamp-4 leading-relaxed font-medium group-hover:text-slate-200" title={session.generated.prompt?.scene}>
-                                            {session.generated.prompt?.scene || <span className="text-slate-600 italic">Vision analysis prompt will appear here...</span>}
-                                        </p>
+                                    <div className="bg-[#161d2f] p-4 rounded-xl border border-white/5 flex-1 min-h-[50px] overflow-hidden group hover:border-pink-500/30 transition-colors flex flex-col justify-start">
+                                        {session.generated.prompt ? (
+                                            <div className="text-[11px] text-slate-300 leading-relaxed bg-black/30 p-3 rounded-lg border border-white/5 overflow-y-auto custom-scrollbar h-full whitespace-pre-wrap">
+                                                <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Scene</span> {session.generated.prompt.scene}</div>
+                                                <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Style</span> {session.generated.prompt.style}</div>
+                                                {session.generated.prompt.shot && (
+                                                    <div className="mb-2"><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Shot</span> {session.generated.prompt.shot.composition} - {session.generated.prompt.shot.lens}</div>
+                                                )}
+                                                {session.generated.prompt.lighting && (
+                                                    <div><span className="text-pink-400 font-bold uppercase text-[9px] tracking-wider block mb-0.5">Lighting</span> {session.generated.prompt.lighting.primary}</div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-600 italic">Vision analysis prompt will appear here...</span>
+                                        )}
                                     </div>
                                     <div className="flex justify-between items-center gap-2 mt-2">
                                         <button
