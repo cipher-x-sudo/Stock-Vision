@@ -147,6 +147,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
 
     // In-place Cloning State
     const [cloningSessions, setCloningSessions] = useState<CloningSession[]>([]);
+    const [threadCount, setThreadCount] = useState(2);
     const [generating, setGenerating] = useState(false);
     const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
     const abortRef = useRef(false);
@@ -159,6 +160,53 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         const next = await toggleFavoriteContributor(creator);
         setFavCreators(next);
     }, []);
+
+    // ── Threaded Vision Analysis ──────────────────────────────
+    const analyzeSession = useCallback(async (sessionId: string, img: StockInsight) => {
+        setCloningSessions(prev => prev.map(s =>
+            s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'analyzing', error: undefined } } : s
+        ));
+
+        try {
+            const payload = [{ url: img.thumbnailUrl, title: img.title, id: img.id }];
+            const response = await fetch(`${(import.meta as any).env?.VITE_API_URL || ''}/api/generate-cloning-prompts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ images: payload })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || response.statusText);
+            }
+
+            const data = await response.json();
+            if (data.prompts && data.prompts.length > 0) {
+                setCloningSessions(prev => prev.map(s =>
+                    s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'done', prompt: data.prompts[0] } } : s
+                ));
+            } else {
+                throw new Error("No prompts returned from Vision AI.");
+            }
+        } catch (err: any) {
+            setCloningSessions(prev => prev.map(s =>
+                s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'error', error: err.message } } : s
+            ));
+        }
+    }, []);
+
+    useEffect(() => {
+        const analyzingCount = cloningSessions.filter(s => s.generated.analysisStatus === 'analyzing').length;
+        const idleCount = cloningSessions.filter(s => s.generated.analysisStatus === 'idle').length;
+
+        if (analyzingCount < threadCount && idleCount > 0) {
+            // Find the first idle session to analyze
+            const nextSession = cloningSessions.find(s => s.generated.analysisStatus === 'idle');
+            if (nextSession) {
+                analyzeSession(nextSession.id, nextSession.original);
+            }
+        }
+    }, [cloningSessions, threadCount, analyzeSession]);
 
     // ── Open config modal before searching ─────────────────────
     const handleSearchClick = useCallback(() => {
@@ -271,78 +319,37 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     // ── Clone ─────────────────────────────────────────────────
     const handleClone = useCallback(async (imagesToClone: StockInsight[]) => {
         if (imagesToClone.length === 0) return;
-        const total = imagesToClone.length;
-        setCloning(true);
-        setError(null);
         setSuccessMsg('');
-        setCloningProgress({ current: 0, total });
-        setStatus(`Analyzing ${total} image${total > 1 ? 's' : ''} with Vision AI...`);
+        setError(null);
 
-        try {
-            const payload = imagesToClone.map(img => ({
-                url: img.thumbnailUrl,
-                title: img.title,
-                id: img.id
-            }));
-
-            const tickMs = total <= 5 ? 3000 : Math.max(1500, 8000 / total);
-            let progressIdx = 0;
-            const progressInterval = setInterval(() => {
-                progressIdx = Math.min(progressIdx + 1, total);
-                setCloningProgress({ current: progressIdx, total });
-                setStatus(`Analyzing image ${progressIdx} of ${total}...`);
-            }, tickMs);
-
-            const response = await fetch(`${(import.meta as any).env?.VITE_API_URL || ''}/api/generate-cloning-prompts`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ images: payload })
-            });
-
-            clearInterval(progressInterval);
-            setCloningProgress({ current: total, total });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || response.statusText);
+        // Create initial sessions marked as 'idle' for analysis
+        const newSessions: CloningSession[] = imagesToClone.map(img => ({
+            id: crypto.randomUUID(),
+            original: img,
+            generated: {
+                prompt: null,
+                analysisStatus: 'idle',
+                dataUrl: null,
+                upscaledUrl: null,
+                status: 'idle',
+                upscaleStatus: 'idle',
+                videoStatus: 'idle'
             }
+        }));
 
-            const data = await response.json();
-            if (data.prompts && Array.isArray(data.prompts)) {
-                // Create sessions
-                const newSessions: CloningSession[] = imagesToClone.map((img, i) => ({
-                    id: crypto.randomUUID(),
-                    original: img,
-                    generated: {
-                        prompt: data.prompts[i],
-                        dataUrl: null,
-                        upscaledUrl: null,
-                        status: 'idle',
-                        upscaleStatus: 'idle',
-                        videoStatus: 'idle'
-                    }
-                }));
-
-                setCloningSessions(prev => [...prev, ...newSessions]);
-                setSuccessMsg(`✓ ${data.prompts.length} cloning sessions ready!`);
-                // Note: Actual generation happens via the "Generate All" button or individual actions
-            }
-        } catch (err: any) {
-            setError("Cloning failed: " + err.message);
-        } finally {
-            setCloning(false);
-            setStatus('');
-            setCloningProgress({ current: 0, total: 0 });
-        }
+        setCloningSessions(prev => [...prev, ...newSessions]);
+        setSuccessMsg(`✓ Added ${imagesToClone.length} images to queue.`);
     }, []);
 
     // ── Generation Logic ──────────────────────────────────────
     const generateOneSession = useCallback(async (index: number) => {
+        const session = cloningSessions[index];
+        if (!session.generated.prompt) return;
+
         setCloningSessions(prev => prev.map((s, i) =>
             i === index ? { ...s, generated: { ...s.generated, status: 'generating', error: undefined } } : s
         ));
         try {
-            const session = cloningSessions[index];
             const dataUrl = await generateImageFromPrompt(session.generated.prompt, { aspectRatio: '16:9', imageSize: '1K', negativePrompt: '' }); // Default settings for cloning
             setCloningSessions(prev => prev.map((s, i) =>
                 i === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
@@ -363,9 +370,12 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
 
         for (let i = 0; i < cloningSessions.length; i++) {
             if (abortRef.current) break;
-            if (cloningSessions[i].generated.status === 'done') {
-                completed++;
-                setGenerationProgress({ current: completed, total });
+            const session = cloningSessions[i];
+            if (session.generated.status === 'done' || session.generated.analysisStatus !== 'done' || !session.generated.prompt) {
+                if (session.generated.status === 'done') {
+                    completed++;
+                    setGenerationProgress({ current: completed, total });
+                }
                 continue;
             }
 
@@ -375,7 +385,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             ));
 
             try {
-                const session = cloningSessions[i];
                 const dataUrl = await generateImageFromPrompt(session.generated.prompt, { aspectRatio: '16:9', imageSize: '1K', negativePrompt: '' }); // Default settings for cloning
                 setCloningSessions(prev => prev.map((s, idx) =>
                     idx === i ? { ...s, generated: { ...s.generated, dataUrl, status: 'done' } } : s
@@ -454,7 +463,18 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                 {cloningSessions.length} active cloning session{cloningSessions.length !== 1 ? 's' : ''}
                             </p>
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2 bg-[#161d2f] px-3 py-1.5 rounded-xl border border-white/10">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Threads</span>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="10"
+                                    value={threadCount}
+                                    onChange={(e) => setThreadCount(Number(e.target.value) || 2)}
+                                    className="w-12 bg-transparent text-white font-bold text-center outline-none border-b border-transparent focus:border-pink-500 transition-colors"
+                                />
+                            </div>
                             {!generating ? (
                                 <button
                                     onClick={generateAllSessions}
@@ -506,7 +526,8 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     <div className="flex items-center justify-between">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-pink-500">Clone</span>
                                         <div className="flex gap-2">
-                                            {session.generated.status === 'generating' && <span className="text-pink-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-spinner fa-spin mr-1"></i> Generating</span>}
+                                            {session.generated.analysisStatus === 'analyzing' && <span className="text-pink-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-spinner fa-spin mr-1"></i> Vision</span>}
+                                            {session.generated.analysisStatus === 'done' && session.generated.status === 'generating' && <span className="text-pink-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-spinner fa-spin mr-1"></i> Drawing</span>}
                                             {session.generated.status === 'done' && <span className="text-emerald-400 text-[10px] font-bold uppercase"><i className="fa-solid fa-check mr-1"></i> Done</span>}
                                         </div>
                                     </div>
@@ -516,15 +537,30 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                             <img src={session.generated.upscaledUrl || session.generated.dataUrl!} alt="Generated" className="w-full h-full object-contain" />
                                         ) : (
                                             <div className="text-slate-600 text-center p-4">
-                                                {session.generated.status === 'error' ? (
+                                                {session.generated.analysisStatus === 'error' ? (
+                                                    <>
+                                                        <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2"></i>
+                                                        <p className="text-xs text-rose-400">{session.generated.error || "Vision Analysis Failed"}</p>
+                                                    </>
+                                                ) : session.generated.status === 'error' ? (
                                                     <>
                                                         <i className="fa-solid fa-triangle-exclamation text-2xl text-rose-500 mb-2"></i>
                                                         <p className="text-xs text-rose-400">{session.generated.error}</p>
                                                     </>
-                                                ) : (
+                                                ) : session.generated.analysisStatus === 'analyzing' ? (
+                                                    <>
+                                                        <i className="fa-solid fa-eye text-2xl mb-2 text-pink-400 animate-pulse"></i>
+                                                        <p className="text-[10px] font-bold uppercase tracking-widest text-pink-400">Analyzing</p>
+                                                    </>
+                                                ) : session.generated.analysisStatus === 'done' ? (
                                                     <>
                                                         <i className="fa-solid fa-dna text-2xl mb-2 opacity-20"></i>
                                                         <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Ready to Clone</p>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <i className="fa-solid fa-hourglass-start text-2xl mb-2 opacity-20"></i>
+                                                        <p className="text-[10px] font-bold uppercase tracking-widest opacity-40">Queued</p>
                                                     </>
                                                 )}
                                             </div>
@@ -540,7 +576,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     <div className="flex gap-2 justify-end pt-2">
                                         <button
                                             onClick={() => generateOneSession(i)}
-                                            disabled={generating || session.generated.status === 'generating'}
+                                            disabled={generating || session.generated.status === 'generating' || session.generated.analysisStatus !== 'done'}
                                             className="px-4 py-2 bg-[#161d2f] hover:bg-[#1a2339] border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-300 transition-all disabled:opacity-50"
                                         >
                                             <i className="fa-solid fa-rotate mr-1"></i> Re-Gen

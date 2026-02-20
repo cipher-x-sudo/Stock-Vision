@@ -144,7 +144,8 @@ export interface Creator {
 }
 
 export interface GeneratedImage {
-  prompt: ImagePrompt;
+  prompt: ImagePrompt | null;
+  analysisStatus: 'idle' | 'analyzing' | 'done' | 'error';
   dataUrl: string | null;
   upscaledUrl: string | null;
   status: 'idle' | 'generating' | 'done' | 'error';
