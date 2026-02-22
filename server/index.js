@@ -1304,7 +1304,8 @@ app.post("/api/generate-video", async (req, res) => {
     }
 
     const modelName = fast ? "veo-3.1-fast-generate-preview" : "veo-3.1-generate-preview";
-    const videoPrompt = plan?.prompt || plan?.scene || prompt || "A sleek cinematic video of this scene.";
+    const baseVideoPrompt = plan?.prompt || plan?.scene || prompt || "A sleek cinematic video of this scene.";
+    const videoPrompt = `${baseVideoPrompt}. Camera movements must be exceptionally smooth, cinematic, and professional. The overall visual quality and direction must be indistinguishable from a premium high-end stock video.`;
 
     console.log(`Starting Veo video generation (${modelName}) with prompt: ${videoPrompt.substring(0, 50)}...`);
 
@@ -1312,15 +1313,10 @@ app.post("/api/generate-video", async (req, res) => {
     let operation = await genai.models.generateVideos({
       model: modelName,
       prompt: videoPrompt,
+      image: { imageBytes: base64Data, mimeType },
       config: {
         ...(videoAspectRatio && { aspectRatio: videoAspectRatio }),
-        ...(videoResolution && { resolution: videoResolution }),
-        referenceImages: [
-          {
-            image: { imageBytes: base64Data, mimeType },
-            referenceType: "asset"
-          }
-        ]
+        ...(videoResolution && { resolution: videoResolution })
       }
     });
 

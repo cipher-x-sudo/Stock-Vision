@@ -185,6 +185,19 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
 
     const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
 
+    // Ref holding latest settings so generation callbacks always use current UI values (avoids stale closure)
+    const settingsRef = useRef<GenerationSettings & { videoAspectRatio: string; videoResolution: string; videoFastMode: boolean }>({
+        aspectRatio: '16:9', imageSize: '1K', negativePrompt: '', videoAspectRatio: '16:9', videoResolution: '1080p', videoFastMode: true,
+    });
+    settingsRef.current = {
+        aspectRatio,
+        imageSize,
+        negativePrompt,
+        videoAspectRatio,
+        videoResolution,
+        videoFastMode,
+    };
+
     useEffect(() => {
         getFavoriteContributors().then(setFavCreators);
     }, []);
@@ -379,13 +392,14 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         const session = cloningSessions[index];
         if (!session.generated.prompt) return;
 
+        const settings = settingsRef.current;
         setCloningSessions(prev => prev.map((s, i) =>
             i === index ? { ...s, generated: { ...s.generated, status: 'generating', error: undefined } } : s
         ));
         try {
-            const dataUrl = await generateImageFromPrompt(session.generated.prompt, currentSettings);
+            const dataUrl = await generateImageFromPrompt(session.generated.prompt, settings);
             setCloningSessions(prev => prev.map((s, i) =>
-                i === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: currentSettings.imageSize } } : s
+                i === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: settings.imageSize } } : s
             ));
         } catch (err: any) {
             setCloningSessions(prev => prev.map((s, i) =>
@@ -425,10 +439,11 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             ));
 
             await Promise.allSettled(chunk.map(async ({ session, index }) => {
+                const settings = settingsRef.current;
                 try {
-                    const dataUrl = await generateImageFromPrompt(session.generated.prompt!, currentSettings);
+                    const dataUrl = await generateImageFromPrompt(session.generated.prompt!, settings);
                     setCloningSessions(prev => prev.map((s, idx) =>
-                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: currentSettings.imageSize } } : s
+                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: settings.imageSize } } : s
                     ));
                 } catch (err: any) {
                     setCloningSessions(prev => prev.map((s, idx) =>
@@ -506,6 +521,8 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         const src = session.generated.upscaledUrl || session.generated.dataUrl;
         if (!src || !session.generated.prompt) return;
 
+        const { videoFastMode: fast, videoAspectRatio: ar, videoResolution: res } = settingsRef.current;
+
         setCloningSessions(prev => prev.map((s, i) =>
             i === index ? { ...s, generated: { ...s.generated, videoStatus: 'planning', error: undefined } } : s
         ));
@@ -525,7 +542,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 i === index ? { ...s, generated: { ...s.generated, videoStatus: 'generating' } } : s
             ));
 
-            const result = await renderVideoFromPlan(src, session.generated.prompt.scene, plan, videoFastMode, videoAspectRatio, videoResolution);
+            const result = await renderVideoFromPlan(src, session.generated.prompt.scene, plan, fast, ar, res);
 
             setCloningSessions(prev => prev.map((s, i) =>
                 i === index ? { ...s, generated: { ...s.generated, videoUrl: result.videoUrl, videoStatus: 'done' } } : s
@@ -535,7 +552,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 i === index ? { ...s, generated: { ...s.generated, videoStatus: 'error', error: err.message } } : s
             ));
         }
-    }, [cloningSessions, videoFastMode, videoAspectRatio, videoResolution]);
+    }, [cloningSessions]);
 
     const generateAllVideos = useCallback(async () => {
         const videoable = cloningSessions
@@ -575,10 +592,11 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                 chunk.some(c => c.index === idx) ? { ...s, generated: { ...s.generated, status: 'generating', error: undefined } } : s
             ));
             await Promise.allSettled(chunk.map(async ({ session, index }) => {
+                const settings = settingsRef.current;
                 try {
-                    const dataUrl = await generateImageFromPrompt(session.generated.prompt!, currentSettings);
+                    const dataUrl = await generateImageFromPrompt(session.generated.prompt!, settings);
                     setCloningSessions(prev => prev.map((s, idx) =>
-                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: currentSettings.imageSize } } : s
+                        idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: settings.imageSize } } : s
                     ));
                 } catch (err: any) {
                     setCloningSessions(prev => prev.map((s, idx) =>
@@ -609,7 +627,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             const chunk = failedUpscales.slice(i, i + threadCount);
             await Promise.allSettled(chunk.map(({ index }) => upscaleSession(index)));
         }
-    }, [cloningSessions, threadCount, generateVideo, upscaleSession, currentSettings]);
+    }, [cloningSessions, threadCount, generateVideo, upscaleSession]);
 
     const [isZipping, setIsZipping] = useState(false);
     const downloadAllAsZip = useCallback(async () => {

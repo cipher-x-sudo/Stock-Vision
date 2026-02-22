@@ -51,6 +51,18 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
 
     const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
 
+    // Ref holding latest settings so generation callbacks always use current UI values (avoids stale closure)
+    const settingsRef = useRef<GenerationSettings & { videoAspectRatio: string; videoResolution: string }>({
+        aspectRatio: '', imageSize: '1K', negativePrompt: '', videoAspectRatio: '16:9', videoResolution: '1080p',
+    });
+    settingsRef.current = {
+        aspectRatio,
+        imageSize,
+        negativePrompt,
+        videoAspectRatio,
+        videoResolution,
+    };
+
     // Auto-import prompts when they arrive from cloning or scan
     useEffect(() => {
         if (sessionPrompts.length > 0) {
@@ -135,24 +147,25 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
         e.target.value = '';
     }, []);
 
-    // Generate single image
+    // Generate single image (reads settings from ref at call time so updated UI values are used)
     const generateOne = useCallback(async (index: number) => {
+        const settings = settingsRef.current;
         setItems(prev => prev.map((it, i) =>
             i === index ? { ...it, status: 'generating', error: undefined } : it
         ));
         try {
-            const dataUrl = await generateImageFromPrompt(items[index].prompt, currentSettings);
+            const dataUrl = await generateImageFromPrompt(items[index].prompt, settings);
             setItems(prev => prev.map((it, i) =>
-                i === index ? { ...it, dataUrl, status: 'done', imageSize: currentSettings.imageSize } : it
+                i === index ? { ...it, dataUrl, status: 'done', imageSize: settings.imageSize } : it
             ));
         } catch (err: any) {
             setItems(prev => prev.map((it, i) =>
                 i === index ? { ...it, status: 'error', error: err.message } : it
             ));
         }
-    }, [items, currentSettings]);
+    }, [items]);
 
-    // Generate all sequentially
+    // Generate all sequentially (reads settings from ref at call time so updated UI values are used)
     const generateAll = useCallback(async () => {
         abortRef.current = false;
         setBatchRunning(true);
@@ -164,14 +177,15 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
             if (abortRef.current) break;
             if (items[i].status === 'done') continue;
 
+            const settings = settingsRef.current;
             setItems(prev => prev.map((it, idx) =>
                 idx === i ? { ...it, status: 'generating', error: undefined } : it
             ));
 
             try {
-                const dataUrl = await generateImageFromPrompt(items[i].prompt, currentSettings);
+                const dataUrl = await generateImageFromPrompt(items[i].prompt, settings);
                 setItems(prev => prev.map((it, idx) =>
-                    idx === i ? { ...it, dataUrl, status: 'done', imageSize: currentSettings.imageSize } : it
+                    idx === i ? { ...it, dataUrl, status: 'done', imageSize: settings.imageSize } : it
                 ));
             } catch (err: any) {
                 setItems(prev => prev.map((it, idx) =>
@@ -184,7 +198,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
         }
 
         setBatchRunning(false);
-    }, [items, currentSettings]);
+    }, [items]);
 
     // Upscale single image to 4K
     const upscaleOne = useCallback(async (index: number) => {
@@ -241,11 +255,13 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
         setUpscaleBatchRunning(false);
     }, [items]);
 
-    // Generate Video from Image
+    // Generate Video from Image (reads video settings from ref at call time so updated UI values are used)
     const generateVideo = useCallback(async (index: number, fast: boolean) => {
         const item = items[index];
         const src = item.upscaledUrl || item.dataUrl;
         if (!src) return;
+
+        const { videoAspectRatio: ar, videoResolution: res } = settingsRef.current;
 
         setItems(prev => prev.map((it, i) =>
             i === index ? { ...it, videoStatus: 'planning', error: undefined } : it
@@ -267,7 +283,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                 i === index ? { ...it, videoStatus: 'generating' } : it
             ));
 
-            const result = await renderVideoFromPlan(src, item.prompt.scene, plan, fast, videoAspectRatio, videoResolution);
+            const result = await renderVideoFromPlan(src, item.prompt.scene, plan, fast, ar, res);
 
             setItems(prev => prev.map((it, i) =>
                 i === index ? { ...it, videoUrl: result.videoUrl, videoStatus: 'done' } : it
