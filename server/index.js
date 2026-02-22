@@ -15,7 +15,18 @@ import { parseCalendarCsv, filterEventsNext90Days } from "./eventCalendar.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Multiple API keys: GEMINI_API_KEYS (comma-separated) or single GEMINI_API_KEY
+const GEMINI_API_KEYS_ARRAY = process.env.GEMINI_API_KEYS
+  ? process.env.GEMINI_API_KEYS.split(",").map((k) => k.trim()).filter(Boolean)
+  : process.env.GEMINI_API_KEY
+    ? [process.env.GEMINI_API_KEY]
+    : [];
+
+function getGeminiClient() {
+  if (GEMINI_API_KEYS_ARRAY.length === 0) return null;
+  const key = GEMINI_API_KEYS_ARRAY[Math.floor(Math.random() * GEMINI_API_KEYS_ARRAY.length)];
+  return new GoogleGenAI({ apiKey: key });
+}
 
 const PORT = process.env.PORT || 3001;
 const app = express();
@@ -672,6 +683,9 @@ app.delete("/api/history/:id", (req, res) => {
 // ── Image Generation (Nano Banana Pro) ────────────────────────
 app.post("/api/generate-image", async (req, res) => {
   try {
+    const genai = getGeminiClient();
+    if (!genai) return res.status(503).json({ error: "Gemini API key(s) not configured." });
+
     const p = req.body;
     if (!p || !p.scene) {
       return res.status(400).json({ error: "Missing prompt data (scene required)" });
@@ -732,6 +746,9 @@ app.post("/api/generate-image", async (req, res) => {
 // ── 4K Upscale (Nano Banana Pro) ──────────────────────────────
 app.post("/api/upscale-image", async (req, res) => {
   try {
+    const genai = getGeminiClient();
+    if (!genai) return res.status(503).json({ error: "Gemini API key(s) not configured." });
+
     const { image } = req.body;
     if (!image) {
       return res.status(400).json({ error: "Missing image data" });
@@ -818,6 +835,8 @@ async function generateWithFallback(
   parameters,
   fallbackModels = ["gemini-2.5-flash", "gemini-2.0-flash"]
 ) {
+  const genai = getGeminiClient();
+  if (!genai) throw new Error("Gemini API key(s) not configured.");
   const models = [parameters.model, ...fallbackModels];
   let lastError;
   for (let i = 0; i < models.length; i++) {
@@ -868,6 +887,7 @@ app.post("/api/generate-keywords", async (req, res) => {
     const keywords = JSON.parse(rawText);
     res.json({ keywords });
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
     console.error("Generate keywords error:", err.message || err);
     res.status(500).json({ error: err.message || "Keyword generation failed" });
   }
@@ -969,6 +989,7 @@ Be data-driven. Reference actual download counts and patterns from the data. Res
     const sources = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || []);
     res.json({ ...parsed, insights: rawData || [], sources });
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
     console.error("Analyze market error:", err.message || err);
     res.status(500).json({ error: err.message || "Market analysis failed" });
   }
@@ -1017,6 +1038,7 @@ app.get("/api/suggested-events", async (req, res) => {
     const events = JSON.parse(rawText);
     res.json({ events });
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
     console.error("Suggested events error:", err.message || err);
     res.status(500).json({ error: err.message || "Suggested events failed" });
   }
@@ -1195,6 +1217,7 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
 
     res.json({ prompts: allPrompts, url: batchUrl });
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
     console.error("Generate prompts error:", err.message || err);
     res.status(500).json({ error: err.message || "Prompt generation failed" });
   }
@@ -1244,6 +1267,7 @@ app.post("/api/generate-video-plan", async (req, res) => {
     res.json({ plan });
 
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
     console.error("Video plan generation error:", err.message || err);
     res.status(500).json({ error: err.message || "Video plan generation failed" });
   }
@@ -1254,6 +1278,9 @@ app.post("/api/generate-video", async (req, res) => {
   // We may need more time for Veo processing. Express usually times out after a few minutes,
   // but we will do our best to poll. If Railway kills it at 100s, this may still fail.
   try {
+    const genai = getGeminiClient();
+    if (!genai) return res.status(503).json({ error: "Gemini API key(s) not configured." });
+
     const { image, prompt, plan, fast, videoAspectRatio, videoResolution } = req.body;
     if (!image) return res.status(400).json({ error: "Missing image data" });
 
@@ -1333,6 +1360,7 @@ app.post("/api/generate-video", async (req, res) => {
     res.json({ videoUrl });
 
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
     console.error("Video generation error:", err.message || err);
     res.status(500).json({ error: err.message || "Video generation failed" });
   }
@@ -1405,6 +1433,7 @@ app.post("/api/generate-cloning-prompts", async (req, res) => {
     res.json({ prompts: results });
 
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
     console.error("Cloning error:", err.message || err);
     res.status(500).json({ error: err.message || "Cloning failed" });
   }
