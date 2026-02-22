@@ -833,7 +833,7 @@ app.post("/api/upscale-image", async (req, res) => {
 // ── Gemini helper: cascading fallback ─────────────────────────
 async function generateWithFallback(
   parameters,
-  fallbackModels = ["gemini-2.5-flash", "gemini-2.0-flash"]
+  fallbackModels = ["gemini-3-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 ) {
   const genai = getGeminiClient();
   if (!genai) throw new Error("Gemini API key(s) not configured.");
@@ -871,7 +871,7 @@ app.post("/api/generate-keywords", async (req, res) => {
     if (!eventName) return res.status(400).json({ error: "Missing eventName" });
 
     const response = await generateWithFallback({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3-flash",
       contents: {
         parts: [{
           text: `For the event "${eventName}", return 18 search keywords that work well on stock photo sites (Adobe Stock). Use SHORT terms only: single words or two-word phrases. Examples of good format: romantic, red, glitter, hearts, background, shimmering, bokeh, valentine, day, promotions, wedding, invitations, love, couple, gift. Do NOT use long descriptive sentences or full phrases. Return a JSON string array of 18 such keywords.`
@@ -921,7 +921,7 @@ app.post("/api/analyze-market", async (req, res) => {
     const truncatedNote = (rawData || []).length > MAX_ITEMS ? ` (Showing top ${MAX_ITEMS} of ${(rawData || []).length} total assets.)` : "";
 
     const response = await generateWithFallback({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3.1-pro",
       contents: {
         parts: [{
           text: `
@@ -1009,7 +1009,7 @@ app.get("/api/suggested-events", async (req, res) => {
     const eventListText = filtered.map((e) => `${e.name} (${e.dateIso})`).join("\n");
 
     const response = await generateWithFallback({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3-flash",
       contents: {
         parts: [{
           text: `Today is ${todayIso}. The following events fall between today and 90 days from today. From this list, select the 8-10 most commercially relevant for stock/visual content. Return each with date in ISO format (YYYY-MM-DD), category (e.g. Holiday, Seasonal, Global Event), short description, and icon (FontAwesome class such as fa-solid fa-gift).\n\nEvents:\n${eventListText}`
@@ -1173,7 +1173,7 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
       const avoidance = recentScenes ? `\n\nDO NOT REPEAT these exact concepts: ${recentScenes}` : "";
 
       const response = await generateWithFallback({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3-flash",
         contents: {
           parts: [{
             text: `${promptIntro}
@@ -1251,7 +1251,7 @@ app.post("/api/generate-video-plan", async (req, res) => {
     }
 
     const planResponse = await generateWithFallback({
-      model: "gemini-2.0-flash",
+      model: "gemini-3-flash",
       contents: {
         parts: [
           { inlineData: { mimeType, data: base64Data } },
@@ -1392,7 +1392,7 @@ app.post("/api/generate-cloning-prompts", async (req, res) => {
 
         // 2. Analyze with Gemini Vision
         const response = await generateWithFallback({
-          model: "gemini-2.0-flash", // Use a vision-capable details model
+          model: "gemini-3-flash", // Use a vision-capable details model
           contents: {
             parts: [
               { inlineData: { mimeType, data: base64Data } },
