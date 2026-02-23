@@ -25,6 +25,9 @@ interface CloningSession {
     generated: GeneratedImage;
 }
 
+/** When auto-download is on and session count is at least this, we download one ZIP after batch instead of per-item (avoids 100 popups). */
+const BULK_AUTO_DOWNLOAD_THRESHOLD = 10;
+
 const ASPECT_RATIOS = [
     { value: '', label: 'Auto' },
     { value: '1:1', label: '1:1 Square' },
@@ -182,12 +185,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     const [videoAspectRatio, setVideoAspectRatio] = useState<string>('16:9');
     const [videoResolution, setVideoResolution] = useState<string>('1080p');
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [autoDownload, setAutoDownload] = useState(false);
 
     const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
 
     // Ref holding latest settings so generation callbacks always use current UI values (avoids stale closure)
-    const settingsRef = useRef<GenerationSettings & { videoAspectRatio: string; videoResolution: string; videoFastMode: boolean }>({
-        aspectRatio: '16:9', imageSize: '1K', negativePrompt: '', videoAspectRatio: '16:9', videoResolution: '1080p', videoFastMode: true,
+    const settingsRef = useRef<GenerationSettings & { videoAspectRatio: string; videoResolution: string; videoFastMode: boolean; autoDownload: boolean }>({
+        aspectRatio: '16:9', imageSize: '1K', negativePrompt: '', videoAspectRatio: '16:9', videoResolution: '1080p', videoFastMode: true, autoDownload: false,
     });
     settingsRef.current = {
         aspectRatio,
@@ -196,11 +200,24 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         videoAspectRatio,
         videoResolution,
         videoFastMode,
+        autoDownload,
     };
 
     useEffect(() => {
         getFavoriteContributors().then(setFavCreators);
     }, []);
+
+    // When a large batch with auto-download just finished, trigger one ZIP (after state has updated)
+    useEffect(() => {
+        if (!pendingZipDownload || generating) return;
+        const completed = cloningSessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
+        if (completed.length === 0) {
+            setPendingZipDownload(false);
+            return;
+        }
+        setPendingZipDownload(false);
+        buildAndDownloadZip(cloningSessions);
+    }, [pendingZipDownload, generating, cloningSessions, buildAndDownloadZip]);
 
     const toggleFav = useCallback(async (creator: Creator) => {
         const next = await toggleFavoriteContributor(creator);
@@ -401,6 +418,12 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             setCloningSessions(prev => prev.map((s, i) =>
                 i === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: settings.imageSize } } : s
             ));
+            if (settingsRef.current.autoDownload) {
+                const a = document.createElement('a');
+                a.href = dataUrl;
+                a.download = `cloned-${session.id}.png`;
+                a.click();
+            }
         } catch (err: any) {
             setCloningSessions(prev => prev.map((s, i) =>
                 i === index ? { ...s, generated: { ...s.generated, status: 'error', error: err.message } } : s
@@ -412,6 +435,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         abortRef.current = false;
         setGenerating(true);
         const total = cloningSessions.length;
+        const totalCount = cloningSessions.length;
         setGenerationProgress({ current: 0, total });
         let completed = 0;
 
@@ -445,6 +469,13 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                     setCloningSessions(prev => prev.map((s, idx) =>
                         idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: settings.imageSize } } : s
                     ));
+                    // For large batches skip per-item download; one ZIP will run at end
+                    if (settingsRef.current.autoDownload && totalCount < BULK_AUTO_DOWNLOAD_THRESHOLD) {
+                        const a = document.createElement('a');
+                        a.href = dataUrl;
+                        a.download = `cloned-${session.id}.png`;
+                        a.click();
+                    }
                 } catch (err: any) {
                     setCloningSessions(prev => prev.map((s, idx) =>
                         idx === index ? { ...s, generated: { ...s.generated, status: 'error', error: err.message } } : s
@@ -455,6 +486,10 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             }));
         }
         setGenerating(false);
+        // For large batches with auto-download on, trigger one ZIP when batch completes (delay so state has flushed)
+        if (settingsRef.current.autoDownload && totalCount >= BULK_AUTO_DOWNLOAD_THRESHOLD) {
+            setTimeout(() => setPendingZipDownload(true), 300);
+        }
     }, [cloningSessions]);
 
     const stopGeneration = useCallback(() => {
@@ -547,6 +582,12 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             setCloningSessions(prev => prev.map((s, i) =>
                 i === index ? { ...s, generated: { ...s.generated, videoUrl: result.videoUrl, videoStatus: 'done' } } : s
             ));
+            if (settingsRef.current.autoDownload && result.videoUrl) {
+                const a = document.createElement('a');
+                a.href = result.videoUrl;
+                a.download = `animated_clone_${session.original.id}.mp4`;
+                a.click();
+            }
         } catch (err: any) {
             setCloningSessions(prev => prev.map((s, i) =>
                 i === index ? { ...s, generated: { ...s.generated, videoStatus: 'error', error: err.message } } : s
@@ -598,6 +639,12 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                     setCloningSessions(prev => prev.map((s, idx) =>
                         idx === index ? { ...s, generated: { ...s.generated, dataUrl, status: 'done', imageSize: settings.imageSize } } : s
                     ));
+                    if (settingsRef.current.autoDownload) {
+                        const a = document.createElement('a');
+                        a.href = dataUrl;
+                        a.download = `cloned-${session.id}.png`;
+                        a.click();
+                    }
                 } catch (err: any) {
                     setCloningSessions(prev => prev.map((s, idx) =>
                         idx === index ? { ...s, generated: { ...s.generated, status: 'error', error: err.message } } : s
@@ -630,8 +677,11 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     }, [cloningSessions, threadCount, generateVideo, upscaleSession]);
 
     const [isZipping, setIsZipping] = useState(false);
-    const downloadAllAsZip = useCallback(async () => {
-        const completedSessions = cloningSessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
+    const [pendingZipDownload, setPendingZipDownload] = useState(false);
+
+    /** Build ZIP from given sessions and trigger download. Used by Download All (ZIP) and by bulk auto-download. */
+    const buildAndDownloadZip = useCallback(async (sessions: CloningSession[]) => {
+        const completedSessions = sessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
         if (completedSessions.length === 0) return;
 
         setIsZipping(true);
@@ -670,13 +720,19 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
             }
 
             const content = await zip.generateAsync({ type: 'blob' });
-            saveAs(content, `viral_clones_with_video_${new Date().toISOString().split('T')[0]}.zip`);
+            saveAs(content, `viral_clones_${completedSessions.length}_assets_${new Date().toISOString().split('T')[0]}.zip`);
         } catch (error) {
             console.error("Failed to zip images:", error);
         } finally {
             setIsZipping(false);
         }
-    }, [cloningSessions]);
+    }, []);
+
+    const downloadAllAsZip = useCallback(async () => {
+        const completedSessions = cloningSessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
+        if (completedSessions.length === 0) return;
+        await buildAndDownloadZip(cloningSessions);
+    }, [cloningSessions, buildAndDownloadZip]);
 
     const progressPercent = cloningProgress.total > 0
         ? Math.round((cloningProgress.current / cloningProgress.total) * 100)
@@ -764,6 +820,11 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     <><i className="fa-solid fa-file-zipper mr-2"></i> Download All (ZIP)</>
                                 )}
                             </button>
+                            {cloningSessions.length >= BULK_AUTO_DOWNLOAD_THRESHOLD && (
+                                <p className="text-[10px] text-slate-500 uppercase tracking-wider self-center">
+                                    {cloningSessions.length} tasks → one ZIP, or enable Auto-download to get a ZIP when batch completes
+                                </p>
+                            )}
 
                             <button
                                 onClick={retryAllFailed}
@@ -929,6 +990,26 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                 </button>
                                             ))}
                                         </div>
+                                    </div>
+
+                                    {/* Auto-download when ready */}
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-3">
+                                            <i className="fa-solid fa-download text-emerald-400 mr-2"></i>
+                                            Auto-download
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAutoDownload(prev => !prev)}
+                                            className={`w-full px-4 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all border text-left flex justify-between items-center ${autoDownload
+                                                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-lg shadow-emerald-500/10'
+                                                : 'bg-[#161d2f] border-white/5 text-slate-400 hover:border-emerald-500/30 hover:text-slate-300'
+                                                }`}
+                                        >
+                                            <span>{autoDownload ? 'On' : 'Off'}</span>
+                                            {autoDownload && <i className="fa-solid fa-check text-emerald-400"></i>}
+                                        </button>
+                                        <p className="mt-1.5 text-[10px] text-slate-500 uppercase tracking-wider">Download each image or video when done; for 10+ tasks you get one ZIP when batch completes</p>
                                     </div>
 
                                     {/* Negative Prompt */}
