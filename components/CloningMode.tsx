@@ -207,18 +207,6 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         getFavoriteContributors().then(setFavCreators);
     }, []);
 
-    // When a large batch with auto-download just finished, trigger one ZIP (after state has updated)
-    useEffect(() => {
-        if (!pendingZipDownload || generating) return;
-        const completed = cloningSessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
-        if (completed.length === 0) {
-            setPendingZipDownload(false);
-            return;
-        }
-        setPendingZipDownload(false);
-        buildAndDownloadZip(cloningSessions);
-    }, [pendingZipDownload, generating, cloningSessions, buildAndDownloadZip]);
-
     const toggleFav = useCallback(async (creator: Creator) => {
         const next = await toggleFavoriteContributor(creator);
         setFavCreators(next);
@@ -733,6 +721,18 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
         if (completedSessions.length === 0) return;
         await buildAndDownloadZip(cloningSessions);
     }, [cloningSessions, buildAndDownloadZip]);
+
+    // When a large batch with auto-download just finished, trigger one ZIP (after state has updated)
+    useEffect(() => {
+        if (!pendingZipDownload || generating) return;
+        const completed = cloningSessions.filter(s => s.generated.dataUrl || s.generated.upscaledUrl);
+        if (completed.length === 0) {
+            setPendingZipDownload(false);
+            return;
+        }
+        setPendingZipDownload(false);
+        buildAndDownloadZip(cloningSessions);
+    }, [pendingZipDownload, generating, cloningSessions, buildAndDownloadZip]);
 
     const progressPercent = cloningProgress.total > 0
         ? Math.round((cloningProgress.current / cloningProgress.total) * 100)
