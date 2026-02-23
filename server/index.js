@@ -1364,6 +1364,9 @@ app.post("/api/generate-video", async (req, res) => {
 
 
 // ── Generate Cloning Prompts (Vision) ─────────────────────────
+const VISION_CLONE_MAX_RETRIES = 3;
+const VISION_CLONE_RETRY_DELAY_MS = 1500;
+
 app.post("/api/generate-cloning-prompts", async (req, res) => {
   try {
     const { images } = req.body; // Expects array of { url, title, id }
@@ -1377,23 +1380,25 @@ app.post("/api/generate-cloning-prompts", async (req, res) => {
     // Process each image (no cap; delay between calls to respect rate limits)
     for (let i = 0; i < images.length; i++) {
       const img = images[i];
-      try {
-        // 1. Fetch image data
-        const imgRes = await fetch(img.url);
-        if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
-        const arrayBuffer = await imgRes.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const base64Data = buffer.toString('base64');
-        const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+      let pushed = false;
+      for (let attempt = 1; attempt <= VISION_CLONE_MAX_RETRIES && !pushed; attempt++) {
+        try {
+          // 1. Fetch image data
+          const imgRes = await fetch(img.url);
+          if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
+          const arrayBuffer = await imgRes.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const base64Data = buffer.toString('base64');
+          const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
 
-        // 2. Analyze with Gemini Vision
-        const response = await generateWithFallback({
-          model: "gemini-3-flash-preview", // Use a vision-capable details model
-          contents: {
-            parts: [
-              { inlineData: { mimeType, data: base64Data } },
-              {
-                text: `Analyze this stock image (Title: "${img.title}").
+          // 2. Analyze with Gemini Vision
+          const response = await generateWithFallback({
+            model: "gemini-3-flash-preview", // Use a vision-capable details model
+            contents: {
+              parts: [
+                { inlineData: { mimeType, data: base64Data } },
+                {
+                  text: `Analyze this stock image (Title: "${img.title}").
                             Create a detailed image generation prompt to clone this exact style, composition, and subject.
                             Return a JSON object matching this schema:
                             {
@@ -1405,24 +1410,32 @@ app.post("/api/generate-cloning-prompts", async (req, res) => {
                                 "visual_rules": { "prohibited_elements": ["watermark", "text"], "grain": "none", "sharpen": "standard" },
                                 "metadata": { "series": "cloning", "task": "clone", "scene_number": "${img.id}", "tags": ["clone", "stock"] }
                             }`
-              }
-            ]
-          },
-          config: {
-            responseMimeType: "application/json"
+                }
+              ]
+            },
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+
+          const promptData = JSON.parse(response.text || "{}");
+          if (promptData && (promptData.scene || promptData.style)) {
+            results.push(normalizeImagePrompt(promptData));
+            pushed = true;
+          } else {
+            throw new Error("Empty or invalid prompt from Vision");
           }
-        });
-
-        const promptData = JSON.parse(response.text || "{}");
-        results.push(normalizeImagePrompt(promptData));
-
-        // Delay between API calls to respect Gemini rate limits
-        if (i < images.length - 1) {
-          await new Promise((r) => setTimeout(r, delayMs));
+        } catch (innerErr) {
+          console.error(`Clone image ${img.id} attempt ${attempt}/${VISION_CLONE_MAX_RETRIES}:`, innerErr.message);
+          if (attempt < VISION_CLONE_MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, VISION_CLONE_RETRY_DELAY_MS));
+          }
         }
-      } catch (innerErr) {
-        console.error(`Failed to clone image ${img.id}:`, innerErr.message);
-        // Optionally push a fallback or error placeholder
+      }
+
+      // Delay between API calls to respect Gemini rate limits
+      if (i < images.length - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
       }
     }
 

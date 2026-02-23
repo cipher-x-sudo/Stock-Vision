@@ -146,6 +146,7 @@ export interface Creator {
 export interface GeneratedImage {
   prompt: ImagePrompt | null;
   analysisStatus: 'idle' | 'analyzing' | 'done' | 'error';
+  analysisRetryAttempt?: number; // when analyzing and > 1, show "Retrying (2/3)" in UI
   dataUrl: string | null;
   upscaledUrl: string | null;
   status: 'idle' | 'generating' | 'done' | 'error';

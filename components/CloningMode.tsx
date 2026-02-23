@@ -28,6 +28,10 @@ interface CloningSession {
 /** When auto-download is on and session count is at least this, we download one ZIP after batch instead of per-item (avoids 100 popups). */
 const BULK_AUTO_DOWNLOAD_THRESHOLD = 10;
 
+/** Max retries for Vision AI cloning prompt generation when no prompts are returned. */
+const VISION_ANALYSIS_MAX_RETRIES = 5;
+const VISION_ANALYSIS_RETRY_DELAY_MS = 2000;
+
 const ASPECT_RATIOS = [
     { value: '', label: 'Auto' },
     { value: '1:1', label: '1:1 Square' },
@@ -215,35 +219,48 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
     // ── Threaded Vision Analysis ──────────────────────────────
     const analyzeSession = useCallback(async (sessionId: string, img: StockInsight) => {
         setCloningSessions(prev => prev.map(s =>
-            s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'analyzing', error: undefined } } : s
+            s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'analyzing', error: undefined, analysisRetryAttempt: undefined } } : s
         ));
 
-        try {
-            const payload = [{ url: img.thumbnailUrl, title: img.title, id: img.id }];
-            const response = await fetch(`${(import.meta as any).env?.VITE_API_URL || ''}/api/generate-cloning-prompts`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ images: payload })
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || response.statusText);
-            }
-
-            const data = await response.json();
-            if (data.prompts && data.prompts.length > 0) {
+        let lastError: Error | null = null;
+        for (let attempt = 1; attempt <= VISION_ANALYSIS_MAX_RETRIES; attempt++) {
+            if (attempt > 1) {
                 setCloningSessions(prev => prev.map(s =>
-                    s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'done', prompt: data.prompts[0] } } : s
+                    s.id === sessionId ? { ...s, generated: { ...s.generated, analysisRetryAttempt: attempt } } : s
                 ));
-            } else {
-                throw new Error("No prompts returned from Vision AI.");
             }
-        } catch (err: any) {
-            setCloningSessions(prev => prev.map(s =>
-                s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'error', error: err.message } } : s
-            ));
+            try {
+                const payload = [{ url: img.thumbnailUrl, title: img.title, id: img.id }];
+                const response = await fetch(`${(import.meta as any).env?.VITE_API_URL || ''}/api/generate-cloning-prompts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ images: payload })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || response.statusText);
+                }
+
+                const data = await response.json();
+                if (data.prompts && data.prompts.length > 0) {
+                    setCloningSessions(prev => prev.map(s =>
+                        s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'done', prompt: data.prompts[0], analysisRetryAttempt: undefined } } : s
+                    ));
+                    return;
+                }
+                lastError = new Error("No prompts returned from Vision AI.");
+            } catch (err: any) {
+                lastError = err instanceof Error ? err : new Error(err?.message || String(err));
+            }
+            if (attempt < VISION_ANALYSIS_MAX_RETRIES) {
+                const delayMs = VISION_ANALYSIS_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+                await new Promise(r => setTimeout(r, delayMs));
+            }
         }
+        setCloningSessions(prev => prev.map(s =>
+            s.id === sessionId ? { ...s, generated: { ...s.generated, analysisStatus: 'error', error: lastError?.message ?? 'Vision AI failed after retries', analysisRetryAttempt: undefined } } : s
+        ));
     }, []);
 
     useEffect(() => {
@@ -1096,7 +1113,7 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                     <div className="flex items-center justify-between">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-pink-500">Cloned Image</span>
                                         <div className="flex gap-2">
-                                            {session.generated.analysisStatus === 'analyzing' && <span className="text-pink-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-spinner fa-spin mr-1"></i> Vision</span>}
+                                            {session.generated.analysisStatus === 'analyzing' && <span className="text-pink-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-spinner fa-spin mr-1"></i> {session.generated.analysisRetryAttempt != null ? `Retry ${session.generated.analysisRetryAttempt}/${VISION_ANALYSIS_MAX_RETRIES}` : 'Vision'}</span>}
                                             {session.generated.analysisStatus === 'done' && session.generated.status === 'generating' && <span className="text-pink-400 text-[10px] font-bold uppercase animate-pulse"><i className="fa-solid fa-spinner fa-spin mr-1"></i> Drawing</span>}
                                             {session.generated.status === 'done' && <span className="text-emerald-400 text-[10px] font-bold uppercase"><i className="fa-solid fa-check mr-1"></i> Done</span>}
                                         </div>
@@ -1155,7 +1172,11 @@ const CloningMode: React.FC<CloningModeProps> = ({ onPromptsGenerated }) => {
                                                 ) : session.generated.analysisStatus === 'analyzing' ? (
                                                     <>
                                                         <i className="fa-solid fa-eye text-3xl mb-3 text-pink-400 filter drop-shadow-[0_0_8px_rgba(236,72,153,0.8)]"></i>
-                                                        <p className="text-[12px] font-black uppercase tracking-[0.2em] text-pink-400 drop-shadow-[0_0_5px_rgba(236,72,153,0.5)]">Analyzing</p>
+                                                        <p className="text-[12px] font-black uppercase tracking-[0.2em] text-pink-400 drop-shadow-[0_0_5px_rgba(236,72,153,0.5)]">
+                                                            {session.generated.analysisRetryAttempt != null
+                                                                ? `Retrying (${session.generated.analysisRetryAttempt}/${VISION_ANALYSIS_MAX_RETRIES})`
+                                                                : 'Analyzing'}
+                                                        </p>
                                                         <div className="w-16 h-1 bg-white/10 rounded-full mt-3 overflow-hidden mx-auto">
                                                             <div className="w-1/2 h-full bg-pink-500 rounded-full animate-[progress_1s_ease-in-out_infinite]"></div>
                                                         </div>
