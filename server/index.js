@@ -8,6 +8,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
+import fsp from "fs/promises";
 import { fileURLToPath } from "url";
 import { GoogleGenAI } from "@google/genai";
 import { parseCalendarCsv, filterEventsNext90Days } from "./eventCalendar.js";
@@ -85,9 +86,6 @@ const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 setInterval(() => {
   [VIDEOS_DIR, IMAGES_DIR, BATCHES_DIR].forEach(dir => cleanupOldFiles(dir, RETENTION_MS));
 }, 24 * 60 * 60 * 1000);
-
-// Run once on startup
-[VIDEOS_DIR, IMAGES_DIR, BATCHES_DIR].forEach(dir => cleanupOldFiles(dir, RETENTION_MS));
 
 function getCookieHeader() {
   if (process.env.TRACK_ADOBE_COOKIES) {
@@ -516,22 +514,19 @@ app.get("/api/history/images", (req, res) => {
 });
 
 // DELETE /api/history/images/:filename
-app.delete("/api/history/images/:filename", (req, res) => {
+app.delete("/api/history/images/:filename", async (req, res) => {
   const filename = req.params.filename;
   // Basic sanity check to prevent directory traversal
   if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
     return res.status(400).json({ error: "Invalid filename" });
   }
   const filePath = path.join(IMAGES_DIR, filename);
-  if (fs.existsSync(filePath)) {
-    try {
-      fs.unlinkSync(filePath);
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: "Failed to delete file" });
-    }
-  } else {
-    res.status(404).json({ error: "File not found" });
+  try {
+    await fsp.unlink(filePath);
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === "ENOENT") return res.status(404).json({ error: "File not found" });
+    res.status(500).json({ error: "Failed to delete file" });
   }
 });
 
@@ -546,20 +541,17 @@ app.get("/api/history/videos", (req, res) => {
 });
 
 // DELETE /api/history/videos/:filename
-app.delete("/api/history/videos/:filename", (req, res) => {
+app.delete("/api/history/videos/:filename", async (req, res) => {
   const filename = req.params.filename;
-  if (filename.includes("..")) return res.status(400).json({ error: "Invalid filename" });
+  if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) return res.status(400).json({ error: "Invalid filename" });
 
   const filePath = path.join(VIDEOS_DIR, filename);
-  if (fs.existsSync(filePath)) {
-    try {
-      fs.unlinkSync(filePath);
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: "Failed to delete file" });
-    }
-  } else {
-    res.status(404).json({ error: "File not found" });
+  try {
+    await fsp.unlink(filePath);
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === "ENOENT") return res.status(404).json({ error: "File not found" });
+    res.status(500).json({ error: "Failed to delete file" });
   }
 });
 
@@ -592,20 +584,17 @@ app.get("/api/history/batches/:filename", (req, res) => {
 });
 
 // DELETE /api/history/batches/:filename
-app.delete("/api/history/batches/:filename", (req, res) => {
+app.delete("/api/history/batches/:filename", async (req, res) => {
   const filename = req.params.filename;
-  if (filename.includes("..")) return res.status(400).json({ error: "Invalid filename" });
+  if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) return res.status(400).json({ error: "Invalid filename" });
 
   const filePath = path.join(BATCHES_DIR, filename);
-  if (fs.existsSync(filePath)) {
-    try {
-      fs.unlinkSync(filePath);
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: "Failed to delete file" });
-    }
-  } else {
-    res.status(404).json({ error: "File not found" });
+  try {
+    await fsp.unlink(filePath);
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === "ENOENT") return res.status(404).json({ error: "File not found" });
+    res.status(500).json({ error: "Failed to delete file" });
   }
 });
 
@@ -664,19 +653,16 @@ app.put("/api/history/:id", (req, res) => {
 });
 
 // DELETE /api/history/:id
-app.delete("/api/history/:id", (req, res) => {
+app.delete("/api/history/:id", async (req, res) => {
   const id = req.params.id;
   const filePath = path.join(HISTORY_DIR, `history-${id}.json`);
 
-  if (fs.existsSync(filePath)) {
-    try {
-      fs.unlinkSync(filePath);
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: "Failed to delete item" });
-    }
-  } else {
-    res.status(404).json({ error: "Item not found" });
+  try {
+    await fsp.unlink(filePath);
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === "ENOENT") return res.status(404).json({ error: "Item not found" });
+    res.status(500).json({ error: "Failed to delete item" });
   }
 });
 
@@ -1463,6 +1449,9 @@ app.listen(PORT, () => {
   if (!getCookieHeader()) {
     console.warn("Warning: TrackAdobe auth not set. Set TRACK_ADOBE_COOKIES or TRACK_ADOBE_SESSION_TOKEN + TRACK_ADOBE_CSRF_TOKEN.");
   }
+  setImmediate(() => {
+    [VIDEOS_DIR, IMAGES_DIR, BATCHES_DIR].forEach(dir => cleanupOldFiles(dir, RETENTION_MS));
+  });
 }).on("error", (err) => {
   if (err.code === "EADDRINUSE") {
     console.error(`\nPort ${PORT} is already in use (another server may be running).`);
