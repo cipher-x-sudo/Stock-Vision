@@ -29,6 +29,52 @@ function getGeminiClient() {
   return new GoogleGenAI({ apiKey: key });
 }
 
+function getGeminiClientByIndex(index) {
+  if (index < 0 || index >= GEMINI_API_KEYS_ARRAY.length) return null;
+  return new GoogleGenAI({ apiKey: GEMINI_API_KEYS_ARRAY[index] });
+}
+
+function isQuotaExhaustedError(error) {
+  const code = error?.code ?? error?.error?.code;
+  if (code === 429) return true;
+  const msg = (error?.message || error?.error?.message || "").toLowerCase();
+  const status = (error?.status || error?.error?.status || "").toUpperCase();
+  return (
+    msg.includes("429") ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("quota") ||
+    msg.includes("rate") ||
+    status === "RESOURCE_EXHAUSTED"
+  );
+}
+
+/** Server-side only: mask API key for logs (first 6 + *** + last 4) so you can identify which key hit quota. */
+function maskApiKey(key) {
+  if (typeof key !== "string" || key.length < 11) return "***";
+  return key.slice(0, 6) + "***" + key.slice(-4);
+}
+
+/** Extract retry-after seconds from 429 error (details[].RetryInfo.retryDelay or message). */
+function getRetryAfterSeconds(error) {
+  const raw = error?.error ?? error;
+  const details = raw?.details;
+  if (Array.isArray(details)) {
+    const retryInfo = details.find((d) => d["@type"]?.includes("RetryInfo") && d.retryDelay);
+    if (retryInfo?.retryDelay) {
+      const d = retryInfo.retryDelay;
+      if (typeof d === "object" && typeof d.seconds === "number") return Math.ceil(d.seconds);
+      const match = String(d).match(/(\d+)/);
+      if (match) return Math.ceil(Number(match[1]));
+    }
+  }
+  const msg = (error?.message || error?.error?.message || "");
+  const match = msg.match(/retry\s+in\s+([\d.]+)\s*s/i);
+  if (match) return Math.ceil(Number(match[1]));
+  return null;
+}
+
+const GEMINI_ALL_KEYS_QUOTA_EXCEEDED = "All Gemini API keys have exceeded quota. Try again later or add more keys.";
+
 const PORT = process.env.PORT || 3001;
 const app = express();
 
@@ -669,9 +715,6 @@ app.delete("/api/history/:id", async (req, res) => {
 // ── Image Generation (Nano Banana Pro) ────────────────────────
 app.post("/api/generate-image", async (req, res) => {
   try {
-    const genai = getGeminiClient();
-    if (!genai) return res.status(503).json({ error: "Gemini API key(s) not configured." });
-
     const p = req.body;
     if (!p || !p.scene) {
       return res.status(400).json({ error: "Missing prompt data (scene required)" });
@@ -691,28 +734,27 @@ app.post("/api/generate-image", async (req, res) => {
       "CRITICAL AVOIDANCE: Ensure there is absolutely NO text, NO handwriting, NO branding, NO logos, NO watermarks, and NO typography anywhere in the scene"
     ].filter(Boolean).join(". ");
 
-    // Build imageConfig from settings
     const imageConfig = {};
     if (p.aspectRatio) imageConfig.aspectRatio = p.aspectRatio;
     if (p.imageSize) imageConfig.imageSize = p.imageSize;
 
-    const response = await genai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
-      contents: parts,
-      config: {
-        responseModalities: ["image", "text"],
-        ...(Object.keys(imageConfig).length > 0 && { imageConfig }),
-      },
-    });
+    const response = await withKeyFallback((genai) =>
+      genai.models.generateContent({
+        model: "gemini-3-pro-image-preview",
+        contents: parts,
+        config: {
+          responseModalities: ["image", "text"],
+          ...(Object.keys(imageConfig).length > 0 && { imageConfig }),
+        },
+      })
+    );
 
-    // Extract image from response
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) {
         const mimeType = part.inlineData.mimeType || "image/png";
         const base64Data = part.inlineData.data;
         const dataUrl = `data:${mimeType};base64,${base64Data}`;
 
-        // Save to storage
         const filename = `img-${Date.now()}-${Math.random().toString(36).substr(2, 6)}.png`;
         const filePath = path.join(IMAGES_DIR, filename);
         fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
@@ -725,6 +767,13 @@ app.post("/api/generate-image", async (req, res) => {
 
     return res.status(422).json({ error: "Model returned no image. Try a different prompt." });
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
     console.error("Image generation error:", err.message || err);
     return res.status(500).json({ error: err.message || "Image generation failed" });
   }
@@ -733,9 +782,6 @@ app.post("/api/generate-image", async (req, res) => {
 // ── 4K Upscale (Nano Banana Pro) ──────────────────────────────
 app.post("/api/upscale-image", async (req, res) => {
   try {
-    const genai = getGeminiClient();
-    if (!genai) return res.status(503).json({ error: "Gemini API key(s) not configured." });
-
     const { image } = req.body;
     if (!image) {
       return res.status(400).json({ error: "Missing image data" });
@@ -767,30 +813,25 @@ app.post("/api/upscale-image", async (req, res) => {
       base64Data = match[2];
     }
 
-    const response = await genai.models.generateContent({
-      model: "gemini-3-pro-image-preview",
-      contents: [
-        {
-          parts: [
-            {
-              inlineData: {
-                mimeType,
-                data: base64Data,
+    const response = await withKeyFallback((genai) =>
+      genai.models.generateContent({
+        model: "gemini-3-pro-image-preview",
+        contents: [
+          {
+            parts: [
+              { inlineData: { mimeType, data: base64Data } },
+              {
+                text: "Upscale this image to the highest possible resolution. Keep every detail, color, and composition exactly the same. Do not change, add, or remove anything — only increase the resolution.",
               },
-            },
-            {
-              text: "Upscale this image to the highest possible resolution. Keep every detail, color, and composition exactly the same. Do not change, add, or remove anything — only increase the resolution.",
-            },
-          ],
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ["image", "text"],
+          imageConfig: { imageSize: "4K" },
         },
-      ],
-      config: {
-        responseModalities: ["image", "text"],
-        imageConfig: {
-          imageSize: "4K",
-        },
-      },
-    });
+      })
+    );
 
     // Extract upscaled image
     for (const part of response.candidates?.[0]?.content?.parts || []) {
@@ -812,43 +853,85 @@ app.post("/api/upscale-image", async (req, res) => {
 
     return res.status(422).json({ error: "Model returned no upscaled image." });
   } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
     console.error("Upscale error:", err.message || err);
     return res.status(500).json({ error: err.message || "Upscale failed" });
   }
 });
 
-// ── Gemini helper: cascading fallback ─────────────────────────
+// ── Gemini helper: cascading fallback (keys then models) ───────
 async function generateWithFallback(
   parameters,
   fallbackModels = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 ) {
-  const genai = getGeminiClient();
-  if (!genai) throw new Error("Gemini API key(s) not configured.");
+  if (GEMINI_API_KEYS_ARRAY.length === 0) throw new Error("Gemini API key(s) not configured.");
   const models = [parameters.model, ...fallbackModels];
   let lastError;
-  for (let i = 0; i < models.length; i++) {
-    try {
-      return await genai.models.generateContent({
-        ...parameters,
-        model: models[i],
-      });
-    } catch (error) {
-      lastError = error;
-      const msg = error?.message || "";
-      const status = error?.status || "";
-      const isRetryable =
-        msg.includes("500") || msg.includes("503") || msg.includes("429") ||
-        msg.includes("RESOURCE_EXHAUSTED") || msg.includes("overloaded") ||
-        msg.includes("rate") || msg.includes("quota") ||
-        status === "INTERNAL" || status === "UNAVAILABLE" || status === "RESOURCE_EXHAUSTED";
-      if (isRetryable && i < models.length - 1) {
-        console.warn(`Model ${models[i]} failed (${msg.slice(0, 80)}), falling back to ${models[i + 1]}`);
-        continue;
+  for (let keyIndex = 0; keyIndex < GEMINI_API_KEYS_ARRAY.length; keyIndex++) {
+    const genai = getGeminiClientByIndex(keyIndex);
+    if (!genai) continue;
+    for (let i = 0; i < models.length; i++) {
+      try {
+        return await genai.models.generateContent({
+          ...parameters,
+          model: models[i],
+        });
+      } catch (error) {
+        lastError = error;
+        const msg = error?.message || "";
+        const status = error?.status || "";
+        const isRetryable =
+          msg.includes("500") || msg.includes("503") || msg.includes("429") ||
+          msg.includes("RESOURCE_EXHAUSTED") || msg.includes("overloaded") ||
+          msg.includes("rate") || msg.includes("quota") ||
+          status === "INTERNAL" || status === "UNAVAILABLE" || status === "RESOURCE_EXHAUSTED";
+        if (isQuotaExhaustedError(error)) {
+          const masked = maskApiKey(GEMINI_API_KEYS_ARRAY[keyIndex]);
+          console.warn(`Key ${keyIndex + 1} (${masked}) quota exhausted, trying next key`);
+          break; // try next key from model 0
+        }
+        if (isRetryable && i < models.length - 1) {
+          console.warn(`Model ${models[i]} failed (${msg.slice(0, 80)}), falling back to ${models[i + 1]}`);
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
   }
-  throw lastError;
+  const err = new Error(GEMINI_ALL_KEYS_QUOTA_EXCEEDED);
+  err.allKeysQuotaExceeded = true;
+  err.retryAfterSeconds = getRetryAfterSeconds(lastError);
+  throw err;
+}
+
+async function withKeyFallback(callback) {
+  if (GEMINI_API_KEYS_ARRAY.length === 0) throw new Error("Gemini API key(s) not configured.");
+  let lastQuotaError = null;
+  for (let keyIndex = 0; keyIndex < GEMINI_API_KEYS_ARRAY.length; keyIndex++) {
+    const genai = getGeminiClientByIndex(keyIndex);
+    if (!genai) continue;
+    try {
+      return await callback(genai);
+    } catch (err) {
+      if (isQuotaExhaustedError(err)) {
+        lastQuotaError = err;
+        const masked = maskApiKey(GEMINI_API_KEYS_ARRAY[keyIndex]);
+        console.warn(`Key ${keyIndex + 1} (${masked}) quota exhausted, trying next key`);
+        if (keyIndex < GEMINI_API_KEYS_ARRAY.length - 1) continue;
+      }
+      throw err;
+    }
+  }
+  const err = new Error(GEMINI_ALL_KEYS_QUOTA_EXCEEDED);
+  err.allKeysQuotaExceeded = true;
+  err.retryAfterSeconds = getRetryAfterSeconds(lastQuotaError);
+  throw err;
 }
 
 // ── Generate Keywords ─────────────────────────────────────────
@@ -875,6 +958,12 @@ app.post("/api/generate-keywords", async (req, res) => {
     res.json({ keywords });
   } catch (err) {
     if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
     console.error("Generate keywords error:", err.message || err);
     res.status(500).json({ error: err.message || "Keyword generation failed" });
   }
@@ -977,6 +1066,12 @@ Be data-driven. Reference actual download counts and patterns from the data. Res
     res.json({ ...parsed, insights: rawData || [], sources });
   } catch (err) {
     if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
     console.error("Analyze market error:", err.message || err);
     res.status(500).json({ error: err.message || "Market analysis failed" });
   }
@@ -1026,6 +1121,12 @@ app.get("/api/suggested-events", async (req, res) => {
     res.json({ events });
   } catch (err) {
     if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
     console.error("Suggested events error:", err.message || err);
     res.status(500).json({ error: err.message || "Suggested events failed" });
   }
@@ -1206,6 +1307,12 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
     res.json({ prompts: allPrompts, url: batchUrl });
   } catch (err) {
     if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
     console.error("Generate prompts error:", err.message || err);
     res.status(500).json({ error: err.message || "Prompt generation failed" });
   }
@@ -1256,6 +1363,12 @@ app.post("/api/generate-video-plan", async (req, res) => {
 
   } catch (err) {
     if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
     console.error("Video plan generation error:", err.message || err);
     res.status(500).json({ error: err.message || "Video plan generation failed" });
   }
@@ -1263,12 +1376,7 @@ app.post("/api/generate-video-plan", async (req, res) => {
 
 // ── Generate Video (Veo) ───────────────────────────────────────
 app.post("/api/generate-video", async (req, res) => {
-  // We may need more time for Veo processing. Express usually times out after a few minutes,
-  // but we will do our best to poll. If Railway kills it at 100s, this may still fail.
   try {
-    const genai = getGeminiClient();
-    if (!genai) return res.status(503).json({ error: "Gemini API key(s) not configured." });
-
     const { image, prompt, plan, fast, videoAspectRatio, videoResolution } = req.body;
     if (!image) return res.status(400).json({ error: "Missing image data" });
 
@@ -1297,56 +1405,57 @@ app.post("/api/generate-video", async (req, res) => {
 
     console.log(`Starting Veo video generation (${modelName}) with prompt: ${videoPrompt.substring(0, 50)}...`);
 
-    // Call the Veo specific endpoint
-    let operation = await genai.models.generateVideos({
-      model: modelName,
-      prompt: videoPrompt,
-      image: { imageBytes: base64Data, mimeType },
-      config: {
-        ...(videoAspectRatio && { aspectRatio: videoAspectRatio }),
-        ...(videoResolution && { resolution: videoResolution })
-      }
-    });
-
-    console.log("Operation started: ", operation.name);
-
-    // Poll the operation status until the video is ready.
-    while (!operation.done) {
-      console.log("Waiting for video generation to complete...", operation.name || "");
-      await new Promise((resolve) => setTimeout(resolve, 10000));
-      operation = await genai.operations.getVideosOperation({
-        operation: operation,
+    const videoUrl = await withKeyFallback(async (genai) => {
+      let operation = await genai.models.generateVideos({
+        model: modelName,
+        prompt: videoPrompt,
+        image: { imageBytes: base64Data, mimeType },
+        config: {
+          ...(videoAspectRatio && { aspectRatio: videoAspectRatio }),
+          ...(videoResolution && { resolution: videoResolution })
+        }
       });
-    }
 
-    let videoUrl = "";
-    if (operation.response && operation.response.generatedVideos && operation.response.generatedVideos.length > 0) {
-      const generatedVideoFile = operation.response.generatedVideos[0].video;
+      console.log("Operation started: ", operation.name);
 
-      const vidFilename = `vid-${Date.now()}-${Math.random().toString(36).substr(2, 6)}.mp4`;
-      const vidPath = path.join(VIDEOS_DIR, vidFilename);
+      while (!operation.done) {
+        console.log("Waiting for video generation to complete...", operation.name || "");
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        operation = await genai.operations.getVideosOperation({
+          operation: operation,
+        });
+      }
 
-      try {
+      if (operation.response && operation.response.generatedVideos && operation.response.generatedVideos.length > 0) {
+        const generatedVideoFile = operation.response.generatedVideos[0].video;
+
+        const vidFilename = `vid-${Date.now()}-${Math.random().toString(36).substr(2, 6)}.mp4`;
+        const vidPath = path.join(VIDEOS_DIR, vidFilename);
+
         await genai.files.download({
           file: generatedVideoFile,
           downloadPath: vidPath
         });
-        videoUrl = `/api/storage/videos/${vidFilename}`;
-        console.log(`Video downloaded successfully to ${videoUrl}`);
-      } catch (dlErr) {
-        console.error("Failed to download video file:", dlErr.message);
-        throw new Error("Video was generated but failed to download.");
+        console.log(`Video downloaded successfully to /api/storage/videos/${vidFilename}`);
+        return `/api/storage/videos/${vidFilename}`;
       }
-    } else {
       throw new Error("Veo API completed but returned no video output.");
-    }
+    });
 
     res.json({ videoUrl });
-
   } catch (err) {
     if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
+    if (err.message === "Video was generated but failed to download.") {
+      return res.status(500).json({ error: err.message });
+    }
     console.error("Video generation error:", err.message || err);
-    res.status(500).json({ error: err.message || "Video generation failed" });
+    return res.status(500).json({ error: err.message || "Video generation failed" });
   }
 });
 
@@ -1431,6 +1540,12 @@ app.post("/api/generate-cloning-prompts", async (req, res) => {
 
   } catch (err) {
     if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
     console.error("Cloning error:", err.message || err);
     res.status(500).json({ error: err.message || "Cloning failed" });
   }
