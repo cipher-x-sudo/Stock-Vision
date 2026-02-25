@@ -37,8 +37,8 @@ function getGeminiClientByIndex(index) {
 function isQuotaExhaustedError(error) {
   const code = error?.code ?? error?.error?.code;
   if (code === 429) return true;
-  const msg = (error?.message || error?.error?.message || "").toLowerCase();
-  const status = (error?.status || error?.error?.status || "").toUpperCase();
+  const msg = String(error?.message || error?.error?.message || "").toLowerCase();
+  const status = String(error?.status ?? error?.error?.status ?? "").toUpperCase();
   return (
     msg.includes("429") ||
     msg.includes("resource_exhausted") ||
