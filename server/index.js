@@ -702,6 +702,7 @@ app.post("/api/generate-image", async (req, res) => {
       p.color_palette?.ink_primary ? `Primary color: ${p.color_palette.ink_primary}` : "",
       p.constraints?.length ? `Constraints: ${p.constraints.join(", ")}` : "",
       p.negativePrompt ? `Avoid: ${p.negativePrompt}` : "",
+      "CRITICAL AVOIDANCE: Ensure there is absolutely NO text, NO handwriting, NO branding, NO logos, NO watermarks, and NO typography anywhere in the scene"
     ].filter(Boolean).join(". ");
 
     // Build imageConfig from settings
@@ -1183,7 +1184,8 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
             
             IMPORTANT: You MUST return a JSON array where each object EXACTLY matches the provided schema.
             Required keys per object: scene, style, constraints, shot (composition, resolution, lens), lighting (primary, secondary, accents), color_palette (background, ink_primary, ink_secondary, text_primary), visual_rules, metadata.
-            Do NOT simplify or flatten the structure.`
+            Do NOT simplify or flatten the structure.
+            CRITICAL INSTRUCTION: Enforce that all scenes and styles strictly prohibit text, handwriting, branding, logos, and watermarks. Include 'text', 'branding', 'logos', 'watermarks' in visual_rules.prohibited_elements.`
           }]
         },
         config: {
@@ -1407,7 +1409,7 @@ app.post("/api/generate-cloning-prompts", async (req, res) => {
                                 "shot": { "composition": "Framing entry", "resolution": "4K", "lens": "Lens type" },
                                 "lighting": { "primary": "Main light source", "secondary": "Fill light", "accents": "Highlights" },
                                 "color_palette": { "background": "Bg color", "ink_primary": "Main color", "ink_secondary": "Sub color", "text_primary": "Text color or N/A" },
-                                "visual_rules": { "prohibited_elements": ["watermark", "text"], "grain": "none", "sharpen": "standard" },
+                                "visual_rules": { "prohibited_elements": ["watermark", "text", "branding", "logos", "typography"], "grain": "none", "sharpen": "standard" },
                                 "metadata": { "series": "cloning", "task": "clone", "scene_number": "${img.id}", "tags": ["clone", "stock"] }
                             }`
                 }
