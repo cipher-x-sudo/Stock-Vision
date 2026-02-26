@@ -1318,6 +1318,66 @@ Generate 25 distinct image prompts for Nano Banana Pro. Each prompt must be a si
   }
 });
 
+// ── Generate Idea Prompts ────────────────────────────────────
+app.post("/api/generate-idea-prompts", async (req, res) => {
+  try {
+    const { idea, count } = req.body;
+    if (!idea) return res.status(400).json({ error: "Missing idea" });
+    const numPrompts = parseInt(count, 10) || 10;
+
+    // We cap it to a reasonable number to avoid abuse or timeouts
+    const maxPrompts = Math.min(Math.max(1, numPrompts), 100);
+
+    const promptIntro = `
+You are an expert AI prompt engineer and art director.
+The user wants to generate images based on this idea/concept:
+"${idea}"
+
+Generate ${maxPrompts} distinct image prompts for Nano Banana Pro (a high-end image generator). Each prompt must be a single image (no video). Vary scene, style, composition, lighting, and color, but strictly adhere to the user's core idea.
+
+IMPORTANT: You MUST return a JSON array where each object EXACTLY matches the provided schema.
+Required keys per object: scene, style, constraints, shot (composition, resolution, lens), lighting (primary, secondary, accents), color_palette (background, ink_primary, ink_secondary, text_primary), visual_rules, metadata.
+Do NOT simplify or flatten the structure.
+CRITICAL INSTRUCTION: Enforce that all scenes and styles strictly prohibit text, handwriting, branding, logos, and watermarks. Include 'text', 'branding', 'logos', 'watermarks' in visual_rules.prohibited_elements.`;
+
+    const response = await generateWithFallback({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [{ text: promptIntro }]
+      },
+      config: {
+        temperature: 0.85,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "ARRAY",
+          items: IMAGE_PROMPT_SCHEMA
+        }
+      }
+    });
+
+    const parsed = JSON.parse(response.text || "[]");
+    const allPrompts = [];
+
+    if (Array.isArray(parsed)) {
+      for (const p of parsed) {
+        allPrompts.push(normalizeImagePrompt(p));
+      }
+    }
+
+    res.json({ prompts: allPrompts });
+  } catch (err) {
+    if (err.message === "Gemini API key(s) not configured.") return res.status(503).json({ error: err.message });
+    if (err.allKeysQuotaExceeded || err.message === GEMINI_ALL_KEYS_QUOTA_EXCEEDED) {
+      return res.status(429).json({
+        error: GEMINI_ALL_KEYS_QUOTA_EXCEEDED,
+        ...(err.retryAfterSeconds != null && { retryAfterSeconds: err.retryAfterSeconds }),
+      });
+    }
+    console.error("Generate idea prompts error:", err.message || err);
+    res.status(500).json({ error: err.message || "Idea prompt generation failed" });
+  }
+});
+
 // ── Video Plan Generation (Director Mode) ──────────────────────
 const DIRECTOR_TEMPLATE = JSON.parse(fs.readFileSync(path.join(__dirname, "director_template.json"), "utf8"));
 
@@ -1351,7 +1411,7 @@ app.post("/api/generate-video-plan", async (req, res) => {
         parts: [
           { inlineData: { mimeType, data: base64Data } },
           {
-            text: `You are a film director. Analyze this image and the user's request: "${prompt}".\nCreate a detailed video generation plan.\nOutput JSON matching this schema: ${JSON.stringify(DIRECTOR_TEMPLATE)}`
+            text: `You are a film director.Analyze this image and the user's request: "${prompt}".\nCreate a detailed video generation plan.\nOutput JSON matching this schema: ${JSON.stringify(DIRECTOR_TEMPLATE)}`
           }
         ]
       },

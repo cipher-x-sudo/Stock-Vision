@@ -61,3 +61,20 @@ export const generateImagePrompts = async (
   const data = await res.json();
   return data.prompts;
 };
+
+export const generateIdeaPrompts = async (
+  idea: string,
+  count: number
+): Promise<ImagePrompt[]> => {
+  const res = await fetch(`${API_BASE}/api/generate-idea-prompts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idea, count }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return data.prompts;
+};

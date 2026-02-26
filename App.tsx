@@ -8,6 +8,7 @@ import TrendChart from './components/TrendChart';
 import ScanConfigModal from './components/ScanConfigModal';
 import ImageStudio from './components/ImageStudio';
 import CloningMode from './components/CloningMode';
+import IdeaToPromptsMode from './components/IdeaToPromptsMode';
 import HistoryTab from './components/HistoryTab';
 import { useHistory } from './contexts/HistoryContext';
 
@@ -237,6 +238,15 @@ const App: React.FC = () => {
             <i className="fa-solid fa-dna mr-2"></i> Cloning
           </NavLink>
           <NavLink
+            to="/ideas"
+            className={({ isActive }) => `px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${isActive
+              ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
+              : 'bg-[#161d2f] text-slate-400 hover:text-white border border-white/5'
+              }`}
+          >
+            <i className="fa-solid fa-lightbulb mr-2"></i> Ideas
+          </NavLink>
+          <NavLink
             to="/studio"
             className={({ isActive }) => `px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${isActive
               ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/20'
@@ -266,6 +276,7 @@ const App: React.FC = () => {
               <CloningMode onPromptsGenerated={handleCloningPrompts} />
             </React.Suspense>
           } />
+          <Route path="/ideas" element={<IdeaToPromptsMode onPromptsGenerated={handleCloningPrompts} />} />
           <Route path="/history" element={<HistoryTab />} />
           <Route path="/" element={
             <>
