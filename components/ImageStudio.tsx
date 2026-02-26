@@ -48,6 +48,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
     const [videoResolution, setVideoResolution] = useState('1080p');
     const [settingsOpen, setSettingsOpen] = useState(true);
     const [manualPrompt, setManualPrompt] = useState('');
+    const [threadCount, setThreadCount] = useState(2);
 
     const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
 
@@ -165,7 +166,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
         }
     }, [items]);
 
-    // Generate all sequentially (reads settings from ref at call time so updated UI values are used)
+    // Generate all sequentially or concurrently based on thread count
     const generateAll = useCallback(async () => {
         abortRef.current = false;
         setBatchRunning(true);
@@ -173,32 +174,37 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
         setBatchProgress({ current: 0, total });
         let completed = 0;
 
-        for (let i = 0; i < items.length; i++) {
-            if (abortRef.current) break;
-            if (items[i].status === 'done') continue;
+        const itemsToProcess = items
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.status !== 'done');
 
-            const settings = settingsRef.current;
+        for (let i = 0; i < itemsToProcess.length; i += threadCount) {
+            if (abortRef.current) break;
+            const chunk = itemsToProcess.slice(i, i + threadCount);
+
             setItems(prev => prev.map((it, idx) =>
-                idx === i ? { ...it, status: 'generating', error: undefined } : it
+                chunk.some(c => c.index === idx) ? { ...it, status: 'generating', error: undefined } : it
             ));
 
-            try {
-                const dataUrl = await generateImageFromPrompt(items[i].prompt, settings);
-                setItems(prev => prev.map((it, idx) =>
-                    idx === i ? { ...it, dataUrl, status: 'done', imageSize: settings.imageSize } : it
-                ));
-            } catch (err: any) {
-                setItems(prev => prev.map((it, idx) =>
-                    idx === i ? { ...it, status: 'error', error: err.message } : it
-                ));
-            }
-
-            completed++;
-            setBatchProgress({ current: completed, total });
+            await Promise.allSettled(chunk.map(async ({ item, index }) => {
+                const settings = settingsRef.current;
+                try {
+                    const dataUrl = await generateImageFromPrompt(item.prompt, settings);
+                    setItems(prev => prev.map((it, idx) =>
+                        idx === index ? { ...it, dataUrl, status: 'done', imageSize: settings.imageSize } : it
+                    ));
+                } catch (err: any) {
+                    setItems(prev => prev.map((it, idx) =>
+                        idx === index ? { ...it, status: 'error', error: err.message } : it
+                    ));
+                }
+                completed++;
+                setBatchProgress({ current: completed, total });
+            }));
         }
 
         setBatchRunning(false);
-    }, [items]);
+    }, [items, threadCount]);
 
     // Upscale single image to 4K
     const upscaleOne = useCallback(async (index: number) => {
@@ -220,40 +226,45 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
         }
     }, [items]);
 
-    // Upscale all generated images to 4K
+    // Upscale all generated images to 4K concurrently based on thread count
     const upscaleAll = useCallback(async () => {
         abortRef.current = false;
         setUpscaleBatchRunning(true);
-        const eligible = items.filter(it => it.status === 'done' && it.upscaleStatus !== 'done' && it.imageSize !== '4k' && it.imageSize !== '4K');
+
+        const eligible = items
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.status === 'done' && item.upscaleStatus !== 'done' && item.imageSize !== '4k' && item.imageSize !== '4K');
+
         setUpscaleBatchProgress({ current: 0, total: eligible.length });
         let completed = 0;
 
-        for (let i = 0; i < items.length; i++) {
+        for (let i = 0; i < eligible.length; i += threadCount) {
             if (abortRef.current) break;
-            const item = items[i];
-            if (item.status !== 'done' || item.upscaleStatus === 'done' || !item.dataUrl || item.imageSize === '4k' || item.imageSize === '4K') continue;
+            const chunk = eligible.slice(i, i + threadCount);
 
             setItems(prev => prev.map((it, idx) =>
-                idx === i ? { ...it, upscaleStatus: 'upscaling', error: undefined } : it
+                chunk.some(c => c.index === idx) ? { ...it, upscaleStatus: 'upscaling', error: undefined } : it
             ));
 
-            try {
-                const upscaledUrl = await upscaleImage(item.dataUrl);
-                setItems(prev => prev.map((it, idx) =>
-                    idx === i ? { ...it, upscaledUrl, upscaleStatus: 'done' } : it
-                ));
-            } catch (err: any) {
-                setItems(prev => prev.map((it, idx) =>
-                    idx === i ? { ...it, upscaleStatus: 'error', error: err.message } : it
-                ));
-            }
-
-            completed++;
-            setUpscaleBatchProgress({ current: completed, total: eligible.length });
+            await Promise.allSettled(chunk.map(async ({ item, index }) => {
+                if (!item.dataUrl) return;
+                try {
+                    const upscaledUrl = await upscaleImage(item.dataUrl);
+                    setItems(prev => prev.map((it, idx) =>
+                        idx === index ? { ...it, upscaledUrl, upscaleStatus: 'done' } : it
+                    ));
+                } catch (err: any) {
+                    setItems(prev => prev.map((it, idx) =>
+                        idx === index ? { ...it, upscaleStatus: 'error', error: err.message } : it
+                    ));
+                }
+                completed++;
+                setUpscaleBatchProgress({ current: completed, total: eligible.length });
+            }));
         }
 
         setUpscaleBatchRunning(false);
-    }, [items]);
+    }, [items, threadCount]);
 
     // Generate Video from Image (reads video settings from ref at call time so updated UI values are used)
     const generateVideo = useCallback(async (index: number, fast: boolean) => {
@@ -572,6 +583,18 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
             {/* Generation + Upscale Controls */}
             {items.length > 0 && (
                 <div className="flex flex-wrap gap-4 items-center">
+                    <div className="flex items-center gap-3 bg-[#161d2f] px-5 h-14 rounded-2xl border border-white/5 shadow-inner mr-2">
+                        <i className="fa-solid fa-microchip text-slate-500"></i>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Threads</span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={threadCount}
+                            onChange={(e) => setThreadCount(Number(e.target.value) || 2)}
+                            className="w-12 bg-transparent text-white font-bold text-center outline-none border-b-2 border-transparent focus:border-violet-500 transition-colors"
+                        />
+                    </div>
                     {!batchRunning && !upscaleBatchRunning ? (
                         <>
                             {items.length - doneCount > 0 && (
