@@ -2,6 +2,8 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { ImagePrompt, GeneratedImage } from '../types';
 import { generateImageFromPrompt, upscaleImage, generateVideoPlanFromImage, renderVideoFromPlan, getBatchHistory, loadBatch } from '../services/imageGenService';
 import type { GenerationSettings, HistoryBatch } from '../services/imageGenService';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import Portal from './Portal';
 
 const ASPECT_RATIOS = [
@@ -49,6 +51,7 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
     const [settingsOpen, setSettingsOpen] = useState(true);
     const [manualPrompt, setManualPrompt] = useState('');
     const [threadCount, setThreadCount] = useState(2);
+    const [isZipping, setIsZipping] = useState(false);
 
     const currentSettings: GenerationSettings = { aspectRatio, imageSize, negativePrompt };
 
@@ -334,6 +337,50 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
             }
         });
     }, [items]);
+
+    // Build and download ZIP of all generated images (prefers 4K where available)
+    const buildAndDownloadZip = useCallback(async () => {
+        const completedItems = items.filter(it => it.status === 'done' && (it.upscaledUrl || it.dataUrl));
+        if (completedItems.length === 0) return;
+
+        setIsZipping(true);
+        try {
+            const zip = new JSZip();
+
+            const base64OrUrlToBlob = async (src: string) => {
+                const res = await fetch(src);
+                return await res.blob();
+            };
+
+            const now = new Date();
+            const pad = (n: number) => n.toString().padStart(2, '0');
+            const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+            for (let i = 0; i < completedItems.length; i++) {
+                const item = completedItems[i];
+                const src = item.upscaledUrl || item.dataUrl;
+                if (!src) continue;
+
+                const blob = await base64OrUrlToBlob(src);
+                const is4K = !!item.upscaledUrl || item.imageSize === '4K' || item.imageSize === '4k';
+                const baseName = `studio_${timestamp}_image_${i + 1}`;
+
+                zip.file(`${baseName}${is4K ? '_4K' : ''}.png`, blob);
+            }
+
+            const content = await zip.generateAsync({ type: 'blob' });
+            saveAs(content, `studio_batch_${timestamp}_${completedItems.length}_images.zip`);
+        } catch (error) {
+            console.error("Failed to zip studio images:", error);
+        } finally {
+            setIsZipping(false);
+        }
+    }, [items]);
+
+    const downloadAllAsZip = useCallback(async () => {
+        if (isZipping) return;
+        await buildAndDownloadZip();
+    }, [buildAndDownloadZip, isZipping]);
 
     const doneCount = items.filter(it => it.status === 'done').length;
     const upscaledCount = items.filter(it => it.upscaleStatus === 'done').length;
@@ -642,6 +689,16 @@ const ImageStudio: React.FC<ImageStudioProps> = ({ sessionPrompts }) => {
                         >
                             <i className="fa-solid fa-download mr-2"></i>
                             Download All ({doneCount})
+                        </button>
+                    )}
+                    {doneCount > 0 && (
+                        <button
+                            onClick={downloadAllAsZip}
+                            disabled={isZipping}
+                            className="px-6 py-4 bg-emerald-500/10 border border-emerald-500/40 hover:bg-emerald-500/20 rounded-2xl font-black text-sm uppercase tracking-widest text-emerald-300 transition-all flex items-center gap-2 disabled:opacity-60"
+                        >
+                            <i className="fa-solid fa-file-zipper"></i>
+                            {isZipping ? 'Zipping…' : 'Download All (ZIP)'}
                         </button>
                     )}
                 </div>
