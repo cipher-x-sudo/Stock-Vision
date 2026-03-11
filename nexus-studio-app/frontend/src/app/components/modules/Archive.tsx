@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import Masonry from "react-responsive-masonry";
 import { api } from "../../../services/api";
+import { MediaInspectorModal } from "../MediaInspectorModal";
 
 interface ScanRow {
   id: string;
@@ -333,95 +334,31 @@ export function Archive() {
           )}
         </AnimatePresence>
 
-        {/* Media Detail Modal */}
-        <AnimatePresence>
-          {selectedMedia !== null && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setSelectedMedia(null)}
-                className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-8"
-              >
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-full max-w-6xl bg-[#0a0f1d] border border-[#161d2f] rounded-2xl overflow-hidden flex"
-                >
-                  {/* Left - Media */}
-                  <div className="flex-[7] bg-[#050810] flex items-center justify-center p-8">
-                    {(() => {
-                      const media = mediaItems.find((m) => m.id === selectedMedia);
-                      if (!media?.url) {
-                        return <div className="w-full aspect-video bg-gradient-to-br from-[#161d2f] to-[#0a0f1d] rounded-lg" />;
-                      }
-                      return media.type === "video" ? (
-                        <video src={media.url} className="w-full max-h-full object-contain rounded-lg" controls autoPlay />
-                      ) : (
-                        <img src={media.url} alt={media.prompt} className="w-full max-h-full object-contain rounded-lg" />
-                      );
-                    })()}
-                  </div>
-
-                  {/* Right - Details */}
-                  <div className="flex-[3] p-6 space-y-6">
-                    <div className="flex items-start justify-between">
-                      <h3 className="text-white font-bold" style={{ fontSize: '1.25rem' }}>
-                        {mediaItems.find((m) => m.id === selectedMedia)?.type === "video" ? "Video" : "Image"}
-                      </h3>
-                      <button
-                        onClick={() => setSelectedMedia(null)}
-                        className="p-2 hover:bg-[#161d2f]/50 rounded-lg transition-colors text-gray-400 hover:text-white"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <p className="text-gray-500 mb-2" style={{ fontSize: '0.875rem' }}>
-                          Prompt
-                        </p>
-                        <p className="text-white bg-[#161d2f]/30 rounded-lg p-3">
-                          {mediaItems.find((m) => m.id === selectedMedia)?.prompt}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className="text-gray-500 mb-2" style={{ fontSize: '0.875rem' }}>
-                          Seed
-                        </p>
-                        <p className="text-white font-mono bg-[#161d2f]/30 rounded-lg p-3">
-                          {mediaItems.find((m) => m.id === selectedMedia)?.seed ?? "—"}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className="text-gray-500 mb-2" style={{ fontSize: '0.875rem' }}>
-                          Created
-                        </p>
-                        <p className="text-white font-mono bg-[#161d2f]/30 rounded-lg p-3">
-                          {mediaItems.find((m) => m.id === selectedMedia)?.date || "—"}
-                        </p>
-                      </div>
-
-                      <motion.button
-                        className="w-full px-6 py-3 bg-[#0ea5e9] hover:bg-[#0ea5e9]/90 rounded-lg text-white font-bold transition-all"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        Reverse Engineer to Studio
-                      </motion.button>
-                    </div>
-                  </div>
-                </motion.div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
+        {selectedMedia !== null && (() => {
+          const media = mediaItems.find((m) => m.id === selectedMedia);
+          return media ? (
+            <MediaInspectorModal
+              open={true}
+              onClose={() => setSelectedMedia(null)}
+              type={media.type}
+              mediaUrl={media.url}
+              title={media.type === "video" ? "Video" : "Image"}
+              subtitle="Archive"
+              resolution="720P"
+              aspectRatio="16:9"
+              format={media.type === "image" ? "PNG" : "MP4"}
+              visionPrompt={media.prompt}
+              onDownload={() => {
+                const a = document.createElement("a");
+                a.href = media.url;
+                a.download = media.url.split("/").pop() ?? "media";
+                a.rel = "noopener";
+                a.click();
+              }}
+              onSendToArchive={undefined}
+            />
+          ) : null;
+        })()}
 
         </>)}
       </div>

@@ -5,6 +5,7 @@ import {
   Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Plus, PlayCircle, Copy, Upload, FileText
 } from "lucide-react";
 import { api, STORAGE_BASE } from "../../../services/api";
+import { MediaInspectorModal } from "../MediaInspectorModal";
 
 interface QueueItem {
   id: number;
@@ -892,57 +893,27 @@ export function ImageStudio() {
         )}
       </div>
 
-      {/* Fullscreen Image Modal */}
-      <AnimatePresence>
-        {selectedItem && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/90 backdrop-blur-xl z-50 flex items-center justify-center p-8"
-            onClick={() => setSelectedItem(null)}
-          >
-            <button
-              onClick={() => setSelectedItem(null)}
-              className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all"
-            >
-              <X className="w-6 h-6" />
-            </button>
-
-            <div className="max-w-5xl w-full" onClick={(e) => e.stopPropagation()}>
-              <motion.img
-                src={selectedItem.imageUrl}
-                alt={selectedItem.prompt}
-                className="w-full h-auto rounded-2xl shadow-2xl"
-                initial={{ scale: 0.9 }}
-                animate={{ scale: 1 }}
-              />
-              <div className="mt-6 bg-[#0a0f1d] border border-[#161d2f] rounded-xl p-6">
-                <p className="text-white text-lg font-mono leading-relaxed mb-4">
-                  {selectedItem.prompt}
-                </p>
-                <div className="flex items-center justify-between">
-                  <div className="flex gap-4 text-sm text-gray-400">
-                    <span>{selectedItem.model}</span>
-                    <span>•</span>
-                    <span>{selectedItem.ratio}</span>
-                    <span>•</span>
-                    <span>{selectedItem.timestamp.toLocaleTimeString()}</span>
-                  </div>
-                  <a
-                    href={selectedItem.imageUrl}
-                    download
-                    className="px-6 py-3 bg-gradient-to-r from-[#f59e0b] to-[#ec4899] rounded-xl text-white font-bold text-sm flex items-center gap-2 hover:opacity-90 transition-all"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </a>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {selectedItem && selectedItem.imageUrl && (
+        <MediaInspectorModal
+          open={true}
+          onClose={() => setSelectedItem(null)}
+          type="image"
+          mediaUrl={selectedItem.imageUrl}
+          title="Image"
+          subtitle={`${selectedItem.model} • ${selectedItem.ratio}`}
+          resolution="720P"
+          aspectRatio={selectedItem.ratio}
+          format="PNG"
+          visionPrompt={selectedItem.prompt}
+          onDownload={() => {
+            const a = document.createElement("a");
+            a.href = selectedItem.imageUrl!;
+            a.download = `image-${selectedItem.id}.png`;
+            a.rel = "noopener";
+            a.click();
+          }}
+        />
+      )}
 
       {/* Settings Modal */}
       <AnimatePresence>

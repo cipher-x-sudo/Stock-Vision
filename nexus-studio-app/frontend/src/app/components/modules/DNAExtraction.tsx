@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { api, mapApiPromptsToRows, type TrackAdobeImage, type PromptRow } from "../../../services/api";
 import { PromptTable } from "../PromptTable";
+import { MediaInspectorModal } from "../MediaInspectorModal";
 
 interface CSVAsset {
   id: string;
@@ -1268,172 +1269,31 @@ export function DNAExtraction() {
         )}
       </div>
 
-      {/* Inspector Modal */}
-      <AnimatePresence>
-        {inspectorSession && inspectorType && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-8"
-            onClick={() => {
-              setInspectorSession(null);
-              setInspectorType(null);
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-[#0a0f1d] border-2 border-[#161d2f] rounded-2xl max-w-7xl w-full max-h-[90vh] overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between px-8 py-6 border-b border-[#161d2f] sticky top-0 bg-[#0a0f1d] z-10">
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    inspectorType === "image" 
-                      ? "bg-gradient-to-br from-[#ec4899] to-[#8b5cf6]" 
-                      : "bg-gradient-to-br from-[#8b5cf6] to-[#6366f1]"
-                  }`}>
-                    {inspectorType === "image" ? (
-                      <Sparkles className="w-5 h-5 text-white" />
-                    ) : (
-                      <Film className="w-5 h-5 text-white" />
-                    )}
-                  </div>
-                  <div>
-                    <h2 className="text-white font-bold text-xl" style={{ fontFamily: 'Space Grotesk' }}>
-                      {inspectorType === "image" ? "CLONED IMAGE" : "ANIMATED CLONE (VEO)"}
-                    </h2>
-                    <p className="text-gray-500 text-sm font-mono">
-                      {inspectorType === "image" ? "720P • AI Vision" : "720P • Video Generation"}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    setInspectorSession(null);
-                    setInspectorType(null);
-                  }}
-                  className="p-2 hover:bg-[#161d2f] rounded-lg transition-colors"
-                >
-                  <X className="w-6 h-6 text-gray-500 hover:text-white" />
-                </button>
-              </div>
+      <MediaInspectorModal
+        open={!!(inspectorSession && inspectorType)}
+        onClose={() => {
+          setInspectorSession(null);
+          setInspectorType(null);
+        }}
+        type={inspectorType === "image" ? "image" : "video"}
+        mediaUrl={
+          inspectorType === "image"
+            ? inspectorSession?.clonedImageUrl ?? ""
+            : inspectorSession?.videoUrl ?? ""
+        }
+        title={inspectorType === "image" ? "CLONED IMAGE" : "ANIMATED CLONE (VEO)"}
+        subtitle={inspectorType === "image" ? "720P • AI Vision" : "720P • Video Generation"}
+        resolution="720P"
+        aspectRatio={inspectorSession?.aspectRatio ?? "16:9"}
+        visionPrompt="A professional scene featuring a person in business attire, shot in a modern office environment with natural lighting. The composition emphasizes clean lines, contemporary architecture, and a sophisticated color palette. Captured with shallow depth of field to create visual depth and professional polish."
+        onDownload={() => {}}
+        onSendToArchive={() => {}}
+        onUpscaleImage2K={inspectorType === "image" ? () => {} : undefined}
+        onUpscaleImage4K={inspectorType === "image" ? () => {} : undefined}
+        onUpscaleVideo1080p={inspectorType === "video" ? () => {} : undefined}
+        onUpscaleVideo4K={inspectorType === "video" ? () => {} : undefined}
+      />
 
-              {/* Content */}
-              <div className="p-8">
-                <div className="grid grid-cols-3 gap-8">
-                  {/* Preview */}
-                  <div className="col-span-2">
-                    <div className="aspect-video bg-gradient-to-br from-[#161d2f] to-[#0a0f1d] rounded-xl overflow-hidden mb-6">
-                      {inspectorType === "image" && inspectorSession.clonedImageUrl ? (
-                        <img
-                          src={inspectorSession.clonedImageUrl}
-                          alt="Cloned"
-                          className="w-full h-full object-contain"
-                        />
-                      ) : inspectorType === "video" && inspectorSession.videoUrl ? (
-                        <video
-                          src={inspectorSession.videoUrl}
-                          className="w-full h-full object-contain"
-                          controls
-                          autoPlay
-                          loop
-                        />
-                      ) : null}
-                    </div>
-
-                    {/* Prompt Preview */}
-                    <div className="bg-[#050810] border border-[#161d2f] rounded-xl p-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Wand2 className="w-4 h-4 text-[#f59e0b]" />
-                        <span className="text-[#f59e0b] text-xs font-mono font-bold uppercase tracking-wider">
-                          Vision Analysis Prompt
-                        </span>
-                      </div>
-                      <p className="text-gray-400 text-sm font-mono leading-relaxed">
-                        A professional scene featuring a person in business attire, shot in a modern office environment with natural lighting. The composition emphasizes clean lines, contemporary architecture, and a sophisticated color palette. Captured with shallow depth of field to create visual depth and professional polish.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Actions Panel */}
-                  <div className="space-y-4">
-                    {/* Info Card */}
-                    <div className="bg-[#050810] border border-[#161d2f] rounded-xl p-4 space-y-3">
-                      <div>
-                        <span className="text-gray-600 text-xs font-mono uppercase">Current Resolution</span>
-                        <p className="text-white text-sm font-bold">720P</p>
-                      </div>
-                      <div>
-                        <span className="text-gray-600 text-xs font-mono uppercase">Aspect Ratio</span>
-                        <p className="text-white text-sm font-bold">{inspectorSession.aspectRatio}</p>
-                      </div>
-                      <div>
-                        <span className="text-gray-600 text-xs font-mono uppercase">Format</span>
-                        <p className="text-white text-sm font-bold">{inspectorType === "image" ? "PNG" : "MP4"}</p>
-                      </div>
-                    </div>
-
-                    {/* Upscale Options */}
-                    {inspectorType === "image" && (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Wand2 className="w-4 h-4 text-[#f59e0b]" />
-                          <span className="text-[#f59e0b] text-xs font-mono font-bold uppercase tracking-wider">
-                            Upscale Image
-                          </span>
-                        </div>
-                        <button className="w-full px-4 py-3 bg-gradient-to-r from-[#f59e0b] to-[#ea580c] hover:opacity-90 rounded-lg text-white font-bold text-sm uppercase tracking-wide shadow-lg shadow-[#f59e0b]/30 transition-all flex items-center justify-center gap-2">
-                          <Crown className="w-4 h-4" />
-                          UPSCALE TO 2K
-                        </button>
-                        <button className="w-full px-4 py-3 bg-gradient-to-r from-[#f59e0b] to-[#ea580c] hover:opacity-90 rounded-lg text-white font-bold text-sm uppercase tracking-wide shadow-lg shadow-[#f59e0b]/30 transition-all flex items-center justify-center gap-2">
-                          <Crown className="w-4 h-4" />
-                          UPSCALE TO 4K ULTRA HD
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Video Options */}
-                    {inspectorType === "video" && (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Wand2 className="w-4 h-4 text-[#8b5cf6]" />
-                          <span className="text-[#8b5cf6] text-xs font-mono font-bold uppercase tracking-wider">
-                            Upscale Video
-                          </span>
-                        </div>
-                        <button className="w-full px-4 py-3 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:opacity-90 rounded-lg text-white font-bold text-sm uppercase tracking-wide shadow-lg shadow-[#8b5cf6]/30 transition-all flex items-center justify-center gap-2">
-                          UPSCALE TO 1080P
-                        </button>
-                        <button className="w-full px-4 py-3 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:opacity-90 rounded-lg text-white font-bold text-sm uppercase tracking-wide shadow-lg shadow-[#8b5cf6]/30 transition-all flex items-center justify-center gap-2">
-                          <Crown className="w-4 h-4" />
-                          UPSCALE TO 4K UHD
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Download Options */}
-                    <div className="space-y-3 pt-4 border-t border-[#161d2f]">
-                      <button className="w-full px-4 py-3 bg-gradient-to-r from-[#0ea5e9] to-[#06b6d4] hover:opacity-90 rounded-lg text-white font-bold text-sm uppercase tracking-wide shadow-lg shadow-[#0ea5e9]/30 transition-all flex items-center justify-center gap-2">
-                        <Download className="w-4 h-4" />
-                        DOWNLOAD
-                      </button>
-                      <button className="w-full px-4 py-3 bg-gradient-to-r from-[#10b981] to-[#059669] hover:opacity-90 rounded-lg text-white font-bold text-sm uppercase tracking-wide shadow-lg shadow-[#10b981]/30 transition-all flex items-center justify-center gap-2">
-                        <Archive className="w-4 h-4" />
-                        SEND TO ARCHIVE
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

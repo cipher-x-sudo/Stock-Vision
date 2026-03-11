@@ -5,6 +5,7 @@ import {
   Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Volume2, VolumeX, Plus, PlayCircle, Copy, Upload, Image as ImageIcon
 } from "lucide-react";
 import { api, STORAGE_BASE } from "../../../services/api";
+import { MediaInspectorModal } from "../MediaInspectorModal";
 
 interface QueueItem {
   id: number;
@@ -682,69 +683,27 @@ export function VideoStudio() {
         )}
       </div>
 
-      {/* Fullscreen Video Player Modal */}
-      <AnimatePresence>
-        {selectedItem && selectedItem.videoUrl && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/95 backdrop-blur-xl z-50 flex items-center justify-center p-8"
-            onClick={() => setSelectedItem(null)}
-          >
-            <button
-              onClick={() => setSelectedItem(null)}
-              className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all z-10"
-            >
-              <X className="w-6 h-6" />
-            </button>
-
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsMuted(!isMuted);
-              }}
-              className="absolute top-6 right-24 p-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all z-10"
-            >
-              {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-            </button>
-
-            <div className="max-w-6xl w-full" onClick={(e) => e.stopPropagation()}>
-              <motion.video
-                src={selectedItem.videoUrl}
-                className="w-full h-auto rounded-2xl shadow-2xl"
-                controls
-                autoPlay
-                muted={isMuted}
-                initial={{ scale: 0.9 }}
-                animate={{ scale: 1 }}
-              />
-              <div className="mt-6 bg-[#0a0f1d] border border-[#161d2f] rounded-xl p-6">
-                <p className="text-white text-lg font-mono leading-relaxed mb-4">
-                  {selectedItem.prompt}
-                </p>
-                <div className="flex items-center justify-between">
-                  <div className="flex gap-4 text-sm text-gray-400">
-                    <span>{selectedItem.model}</span>
-                    <span>•</span>
-                    <span>{selectedItem.ratio}</span>
-                    <span>•</span>
-                    <span>{selectedItem.timestamp.toLocaleTimeString()}</span>
-                  </div>
-                  <a
-                    href={selectedItem.videoUrl}
-                    download
-                    className="px-6 py-3 bg-gradient-to-r from-[#8b5cf6] to-[#d946ef] rounded-xl text-white font-bold text-sm flex items-center gap-2 hover:opacity-90 transition-all"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </a>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {selectedItem && selectedItem.videoUrl && (
+        <MediaInspectorModal
+          open={true}
+          onClose={() => setSelectedItem(null)}
+          type="video"
+          mediaUrl={selectedItem.videoUrl}
+          title="Video"
+          subtitle={`${selectedItem.model} • ${selectedItem.ratio}`}
+          resolution="720P"
+          aspectRatio={selectedItem.ratio}
+          format="MP4"
+          visionPrompt={selectedItem.prompt}
+          onDownload={() => {
+            const a = document.createElement("a");
+            a.href = selectedItem.videoUrl!;
+            a.download = `video-${selectedItem.id}.mp4`;
+            a.rel = "noopener";
+            a.click();
+          }}
+        />
+      )}
 
       {/* Settings Modal */}
       <AnimatePresence>
