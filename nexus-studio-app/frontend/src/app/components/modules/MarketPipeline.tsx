@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, Zap, ChevronDown, Download, Sparkles, Image as ImageIcon, Video, Shapes, Pen, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
@@ -6,44 +6,38 @@ import * as Slider from "@radix-ui/react-slider";
 import * as Switch from "@radix-ui/react-switch";
 import Masonry from "react-responsive-masonry";
 import { PromptTable } from "../PromptTable";
+import { api, mapApiPromptsToRows, type SuggestedEvent, type TrackAdobeImage, type AnalysisResult, type AnalysisBrief } from "../../../services/api";
 
-const upcomingEvents = [
-  { id: 1, icon: "🎄", title: "Christmas", daysUntil: 289 },
-  { id: 2, icon: "🎃", title: "Halloween", daysUntil: 234 },
-  { id: 3, icon: "💝", title: "Valentine's Day", daysUntil: 340 },
-  { id: 4, icon: "🎆", title: "New Year", daysUntil: 296 },
-  { id: 5, icon: "🦃", title: "Thanksgiving", daysUntil: 258 },
-  { id: 6, icon: "🎓", title: "Graduation Season", daysUntil: 92 },
-];
+type EventCard = { id: string; icon: string; title: string; daysUntil: number };
 
-const mockTrendData = [
-  { month: "Apr", volume: 2400 },
-  { month: "May", volume: 1398 },
-  { month: "Jun", volume: 9800 },
-  { month: "Jul", volume: 3908 },
-  { month: "Aug", volume: 4800 },
-  { month: "Sep", volume: 3800 },
-  { month: "Oct", volume: 4300 },
-];
+function daysUntil(dateStr: string): number {
+  const d = new Date(dateStr);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.ceil((d.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)));
+}
 
-const mockTopSellers = [
-  "Cinematic ocean sunset with dramatic clouds",
-  "Minimalist product photography on marble",
-  "Neon cyberpunk cityscape at night",
-  "Macro photography of water droplets",
-  "Abstract geometric patterns in pastel colors",
-];
+function suggestedEventToCard(e: SuggestedEvent, index: number): EventCard {
+  return {
+    id: `${e.name}-${e.date}-${index}`,
+    icon: e.icon || "📅",
+    title: e.name,
+    daysUntil: daysUntil(e.date),
+  };
+}
 
-const mockImages = [
-  { id: 1, downloads: 12500 },
-  { id: 2, downloads: 8900 },
-  { id: 3, downloads: 15200 },
-  { id: 4, downloads: 6700 },
-  { id: 5, downloads: 21300 },
-  { id: 6, downloads: 9400 },
-  { id: 7, downloads: 11800 },
-  { id: 8, downloads: 7200 },
-];
+const orderToApi: Record<string, string> = {
+  relevance: "relevance",
+  "most-downloads": "nb_downloads",
+  newest: "creation",
+  featured: "featured",
+};
+
+interface ScanConfig {
+  searchTerm: string;
+  minimumDemand: number;
+}
 
 export function MarketPipeline() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -52,7 +46,18 @@ export function MarketPipeline() {
   const [showBrief, setShowBrief] = useState(false);
   const [showPrompts, setShowPrompts] = useState(false);
   const [minDemand, setMinDemand] = useState([500]);
-  
+
+  const [events, setEvents] = useState<EventCard[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+
+  const [trackImages, setTrackImages] = useState<TrackAdobeImage[]>([]);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [promptsFromApi, setPromptsFromApi] = useState<ReturnType<typeof mapApiPromptsToRows>>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [promptsLoading, setPromptsLoading] = useState(false);
+  const [promptsError, setPromptsError] = useState<string | null>(null);
+
   // Scan configuration state
   const [sortOrder, setSortOrder] = useState<"relevance" | "most-downloads" | "newest" | "featured">("relevance");
   const [assetType, setAssetType] = useState<"all" | "photo" | "video" | "vector" | "illustration">("all");
@@ -63,41 +68,105 @@ export function MarketPipeline() {
   const [yearTo, setYearTo] = useState("");
   const [aiGeneratedOnly, setAiGeneratedOnly] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    setEventsLoading(true);
+    setEventsError(null);
+    api
+      .suggestedEvents()
+      .then(({ events: list }) => {
+        if (!cancelled) setEvents(list.map((e, i) => suggestedEventToCard(e, i)));
+      })
+      .catch((err) => {
+        if (!cancelled) setEventsError(err instanceof Error ? err.message : "Failed to load events");
+      })
+      .finally(() => {
+        if (!cancelled) setEventsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleEventClick = (title: string) => {
     setSearchQuery(title);
   };
 
   const handleStartScan = (config: ScanConfig) => {
-    console.log("Starting scan with config:", config);
-    // Update the search query with the configured term
     setSearchQuery(config.searchTerm);
     setMinDemand([config.minimumDemand]);
-    // Close config and start scanning
     setShowConfig(false);
     handleDeepScan();
   };
 
-  const handleDeepScan = () => {
+  const handleDeepScan = async () => {
+    if (!searchQuery.trim()) return;
     setIsScanning(true);
     setShowBrief(false);
     setShowPrompts(false);
-    
-    setTimeout(() => {
-      setIsScanning(false);
+    setScanError(null);
+    setTrackImages([]);
+    setAnalysisResult(null);
+    setPromptsFromApi([]);
+
+    try {
+      const from = Math.max(1, pagesFrom);
+      const to = Math.max(from, pagesTo);
+      const content_type = assetType === "all" ? undefined : assetType;
+      const order = orderToApi[sortOrder] ?? "relevance";
+
+      const allImages: TrackAdobeImage[] = [];
+      for (let p = from; p <= to; p++) {
+        const { images } = await api.trackAdobe({
+          q: searchQuery.trim(),
+          page: p,
+          endPage: to > from ? to : undefined,
+          ai_only: aiGeneratedOnly,
+          content_type,
+          order,
+        });
+        allImages.push(...images);
+      }
+      setTrackImages(allImages);
+
+      const eventName = searchQuery.trim();
+      const rawData = allImages;
+      const result = await api.analyzeMarket({ eventName, rawData });
+      setAnalysisResult(result);
       setShowBrief(true);
-    }, 2500);
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : "Scan failed");
+    } finally {
+      setIsScanning(false);
+    }
   };
 
-  const handleExpandPrompts = () => {
-    setShowPrompts(true);
+  const handleExpandPrompts = async () => {
+    const brief: AnalysisBrief | undefined = analysisResult?.brief;
+    const eventName = searchQuery.trim();
+    if (!brief || !eventName) {
+      setPromptsError("Run a scan and analysis first.");
+      setShowPrompts(true);
+      return;
+    }
+    setPromptsLoading(true);
+    setPromptsError(null);
+    try {
+      const { prompts: list } = await api.generatePrompts({ eventName, brief });
+      setPromptsFromApi(mapApiPromptsToRows(list));
+      setShowPrompts(true);
+    } catch (err) {
+      setPromptsError(err instanceof Error ? err.message : "Failed to generate prompts");
+      setShowPrompts(true);
+    } finally {
+      setPromptsLoading(false);
+    }
   };
 
-  const prompts = Array.from({ length: 100 }, (_, i) => ({
-    id: i + 1,
-    scene: `Cinematic scene ${i + 1} with dramatic composition`,
-    style: i % 3 === 0 ? "Photorealistic" : i % 3 === 1 ? "Artistic" : "Hyperreal",
-    lighting: i % 4 === 0 ? "Golden hour" : i % 4 === 1 ? "Studio" : i % 4 === 2 ? "Natural" : "Dramatic",
+  const trendData = (analysisResult?.trends ?? []).map((t) => ({
+    month: t.month,
+    volume: t.demand ?? 0,
   }));
+  const topSellers = analysisResult?.brief?.bestSellers ?? [];
+  const promptRows = promptsFromApi.length > 0 ? promptsFromApi : [];
 
   return (
     <div className="min-h-screen bg-[#050810] p-8">
@@ -117,8 +186,14 @@ export function MarketPipeline() {
           <h2 className="text-white font-semibold mb-4" style={{ fontSize: '1.25rem', fontFamily: 'Space Grotesk' }}>
             90-Day Horizon Calendar
           </h2>
+          {eventsError && (
+            <div className="text-amber-400/90 text-sm mb-4">{eventsError}</div>
+          )}
+          {eventsLoading && (
+            <div className="text-gray-400 text-sm">Loading events...</div>
+          )}
           <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-[#161d2f] scrollbar-track-transparent">
-            {upcomingEvents.map((event) => (
+            {events.map((event) => (
               <motion.button
                 key={event.id}
                 onClick={() => handleEventClick(event.title)}
@@ -370,25 +445,38 @@ export function MarketPipeline() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-8"
             >
+              {scanError && (
+                <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  {scanError}
+                </div>
+              )}
               {/* Evidence Section */}
               <div className="bg-[#0a0f1d]/50 border border-[#161d2f] rounded-xl p-6 backdrop-blur-xl">
                 <h2 className="text-white font-semibold mb-4" style={{ fontSize: '1.5rem' }}>
                   Evidence
                 </h2>
                 <Masonry columnsCount={4} gutter="16px">
-                  {mockImages.map((img, index) => (
+                  {trackImages.map((img, index) => (
                     <motion.div
-                      key={img.id}
+                      key={img.id ?? index}
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: index * 0.1 }}
+                      transition={{ delay: index * 0.05 }}
                       className="relative group overflow-hidden rounded-lg bg-[#161d2f]"
                     >
-                      <div className="aspect-[3/4] bg-gradient-to-br from-[#161d2f] to-[#0a0f1d]" />
+                      {img.thumbnailUrl ? (
+                        <img
+                          src={img.thumbnailUrl}
+                          alt={img.title ?? ""}
+                          className="aspect-[3/4] w-full object-cover"
+                        />
+                      ) : (
+                        <div className="aspect-[3/4] bg-gradient-to-br from-[#161d2f] to-[#0a0f1d]" />
+                      )}
                       <div className="absolute top-2 right-2 px-2 py-1 bg-[#10b981]/90 backdrop-blur-sm rounded-full flex items-center gap-1">
                         <Download className="w-3 h-3 text-white" />
                         <span className="text-white font-mono" style={{ fontSize: '0.75rem' }}>
-                          {(img.downloads / 1000).toFixed(1)}k
+                          {img.downloads ? (parseInt(String(img.downloads), 10) / 1000).toFixed(1) + "k" : "—"}
                         </span>
                       </div>
                     </motion.div>
@@ -403,7 +491,7 @@ export function MarketPipeline() {
                     Trend Volume
                   </h2>
                   <ResponsiveContainer width="100%" height={200}>
-                    <LineChart data={mockTrendData}>
+                    <LineChart data={trendData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#161d2f" />
                       <XAxis dataKey="month" stroke="#6b7280" />
                       <YAxis stroke="#6b7280" />
@@ -430,7 +518,7 @@ export function MarketPipeline() {
                     Top Sellers
                   </h2>
                   <ol className="space-y-3">
-                    {mockTopSellers.map((seller, index) => (
+                    {topSellers.map((seller, index) => (
                       <li key={index} className="flex gap-3">
                         <span className="text-[#0ea5e9] font-mono font-bold">
                           {String(index + 1).padStart(2, "0")}
@@ -451,8 +539,9 @@ export function MarketPipeline() {
                 >
                   <motion.button
                     onClick={handleExpandPrompts}
-                    className="px-12 py-6 bg-gradient-to-r from-[#f59e0b] to-[#8b5cf6] hover:opacity-90 rounded-xl text-white font-bold transition-all shadow-[0_0_40px_rgba(245,158,11,0.5)] relative overflow-hidden group"
-                    whileHover={{ scale: 1.05 }}
+                    disabled={promptsLoading}
+                    className="px-12 py-6 bg-gradient-to-r from-[#f59e0b] to-[#8b5cf6] hover:opacity-90 rounded-xl text-white font-bold transition-all shadow-[0_0_40px_rgba(245,158,11,0.5)] relative overflow-hidden group disabled:opacity-60"
+                    whileHover={{ scale: promptsLoading ? 1 : 1.05 }}
                     whileTap={{ scale: 0.98 }}
                     style={{ fontSize: '1.25rem' }}
                   >
@@ -462,9 +551,13 @@ export function MarketPipeline() {
                       whileHover={{ scale: 2, opacity: 0 }}
                       transition={{ duration: 0.6 }}
                     />
-                    EXPAND INTO 100 PROMPTS
+                    {promptsLoading ? "Generating prompts…" : "EXPAND INTO PROMPTS"}
                   </motion.button>
                 </motion.div>
+              )}
+
+              {promptsError && (
+                <div className="text-amber-400/90 text-sm">{promptsError}</div>
               )}
 
               {/* Prompts Table */}
@@ -473,7 +566,11 @@ export function MarketPipeline() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                 >
-                  <PromptTable prompts={prompts} />
+                  {promptRows.length > 0 ? (
+                    <PromptTable prompts={promptRows} />
+                  ) : (
+                    <div className="text-gray-400">No prompts yet. Click “EXPAND INTO PROMPTS” to generate.</div>
+                  )}
                 </motion.div>
               )}
             </motion.div>

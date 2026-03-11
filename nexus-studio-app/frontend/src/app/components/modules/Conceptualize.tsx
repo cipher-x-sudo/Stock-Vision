@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import * as Slider from "@radix-ui/react-slider";
 import * as Select from "@radix-ui/react-select";
 import { PromptTable } from "../PromptTable";
+import { api, mapApiPromptsToRows, type PromptRow } from "../../../services/api";
 
 const aestheticOptions = [
   "Cinematic",
@@ -25,6 +26,8 @@ export function Conceptualize() {
   const [selectedAesthetics, setSelectedAesthetics] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPrompts, setShowPrompts] = useState(false);
+  const [prompts, setPrompts] = useState<PromptRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const toggleAesthetic = (aesthetic: string) => {
     setSelectedAesthetics((prev) =>
@@ -34,22 +37,22 @@ export function Conceptualize() {
     );
   };
 
-  const handleConceptualize = () => {
+  const handleConceptualize = async () => {
     setIsGenerating(true);
     setShowPrompts(false);
-    
-    setTimeout(() => {
-      setIsGenerating(false);
+    setError(null);
+    try {
+      const count = Math.min(100, Math.max(1, volume[0]));
+      const { prompts: list } = await api.generateIdeaPrompts({ idea: concept.trim() || "Creative concept", count });
+      setPrompts(mapApiPromptsToRows(list));
       setShowPrompts(true);
-    }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate prompts");
+      setShowPrompts(true);
+    } finally {
+      setIsGenerating(false);
+    }
   };
-
-  const prompts = Array.from({ length: volume[0] }, (_, i) => ({
-    id: i + 1,
-    scene: `${concept || "Creative concept"} - variation ${i + 1}`,
-    style: selectedAesthetics[i % selectedAesthetics.length] || "Photorealistic",
-    lighting: i % 4 === 0 ? "Volumetric" : i % 4 === 1 ? "Ambient" : i % 4 === 2 ? "Accent" : "Dramatic rim",
-  }));
 
   return (
     <div className="min-h-screen bg-[#050810] p-8">
@@ -198,13 +201,23 @@ export function Conceptualize() {
           </motion.div>
         )}
 
+        {error && (
+          <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+            {error}
+          </div>
+        )}
+
         {/* Results */}
         {showPrompts && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <PromptTable prompts={prompts} />
+            {prompts.length > 0 ? (
+              <PromptTable prompts={prompts} />
+            ) : (
+              <div className="text-gray-400">No prompts generated.</div>
+            )}
           </motion.div>
         )}
       </div>

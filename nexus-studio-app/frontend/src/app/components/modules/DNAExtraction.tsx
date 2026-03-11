@@ -1,10 +1,12 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { 
-  Upload, Dna, CheckSquare, Square, Sparkles, Loader2, 
+import {
+  Upload, Dna, CheckSquare, Square, Sparkles, Loader2,
   Play, Trash2, Download, Archive, Film, Image as ImageIcon,
   Wand2, X, Copy, Calendar, TrendingUp, ChevronDown, ChevronUp, Crown, Zap, ArrowLeft, Search, User, Maximize2
 } from "lucide-react";
+import { api, mapApiPromptsToRows, type TrackAdobeImage, type PromptRow } from "../../../services/api";
+import { PromptTable } from "../PromptTable";
 
 interface CSVAsset {
   id: string;
@@ -49,6 +51,37 @@ export function DNAExtraction() {
   const [imageReference, setImageReference] = useState<string | null>(null);
   const imageRefInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [clonePrompts, setClonePrompts] = useState<PromptRow[]>([]);
+  const [clonePromptsLoading, setClonePromptsLoading] = useState(false);
+  const [clonePromptsError, setClonePromptsError] = useState<string | null>(null);
+  const [showClonePrompts, setShowClonePrompts] = useState(false);
+
+  const trackAdobeToAsset = (img: TrackAdobeImage, index: number): CSVAsset => ({
+    id: img.id ?? `track-${index}`,
+    title: img.title ?? "",
+    thumbnailUrl: img.thumbnailUrl ?? "",
+    downloads: parseInt(String(img.downloads ?? 0), 10) || 0,
+    creator: img.creator ?? "",
+    category: img.category ?? "",
+    keywords: (Array.isArray(img.keywords) ? img.keywords.join(", ") : "") || "",
+  });
+
+  const handleFindBest = async () => {
+    if (!searchQuery.trim()) return;
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const { images } = await api.trackAdobe({ q: searchQuery.trim(), page: 1 });
+      setAssets(images.map((img, i) => trackAdobeToAsset(img, i)));
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : "Search failed");
+    } finally {
+      setSearchLoading(false);
+    }
+  };
 
   const parseCSV = (text: string): CSVAsset[] => {
     const lines = text.split('\n').filter(line => line.trim());
@@ -107,71 +140,35 @@ export function DNAExtraction() {
     }
   };
 
-  const cloneSelected = () => {
+  const cloneSelected = async () => {
     const selected = assets.filter(a => selectedIds.has(a.id));
+    if (selected.length === 0) return;
+
+    setClonePromptsLoading(true);
+    setClonePromptsError(null);
+    setShowClonePrompts(false);
+    try {
+      const { prompts: list } = await api.generateCloningPrompts({
+        images: selected.map(a => ({ url: a.thumbnailUrl, title: a.title, id: a.id })),
+      });
+      setClonePrompts(mapApiPromptsToRows(list));
+      setShowClonePrompts(true);
+    } catch (err) {
+      setClonePromptsError(err instanceof Error ? err.message : "Failed to generate cloning prompts");
+    } finally {
+      setClonePromptsLoading(false);
+    }
+
     const newSessions: CloneSession[] = selected.map(asset => ({
       id: `session-${Date.now()}-${asset.id}`,
       asset,
-      status: "analyzing",
-      progress: 0,
+      status: "complete",
+      progress: 100,
       aspectRatio: "16:9",
+      clonedImageUrl: asset.thumbnailUrl,
     }));
-
     setSessions(prev => [...newSessions, ...prev]);
     setSelectedIds(new Set());
-
-    // Simulate cloning process
-    newSessions.forEach((session, index) => {
-      setTimeout(() => {
-        // Analyzing phase
-        let progress = 0;
-        const analyzeInterval = setInterval(() => {
-          progress += Math.random() * 20;
-          if (progress >= 100) {
-            progress = 100;
-            clearInterval(analyzeInterval);
-            
-            // Move to cloning
-            setTimeout(() => {
-              setSessions(prev => prev.map(s => 
-                s.id === session.id ? { ...s, status: "cloning", progress: 0 } : s
-              ));
-
-              // Cloning progress
-              let cloneProgress = 0;
-              const cloneInterval = setInterval(() => {
-                cloneProgress += Math.random() * 15;
-                if (cloneProgress >= 100) {
-                  cloneProgress = 100;
-                  clearInterval(cloneInterval);
-                  
-                  // Complete
-                  setTimeout(() => {
-                    setSessions(prev => prev.map(s => 
-                      s.id === session.id ? { 
-                        ...s, 
-                        status: "complete", 
-                        progress: 100,
-                        clonedImageUrl: `https://picsum.photos/seed/${session.id}/800/450`,
-                        videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-                      } : s
-                    ));
-                  }, 500);
-                } else {
-                  setSessions(prev => prev.map(s => 
-                    s.id === session.id ? { ...s, progress: cloneProgress } : s
-                  ));
-                }
-              }, 400);
-            }, 800);
-          } else {
-            setSessions(prev => prev.map(s => 
-              s.id === session.id ? { ...s, progress } : s
-            ));
-          }
-        }, 300);
-      }, index * 200);
-    });
   };
 
   const generateAll = () => {
@@ -287,6 +284,11 @@ export function DNAExtraction() {
             {/* Search Interface */}
             {cloneMode === "keyword" ? (
               <div className="bg-[#0a0f1d] border-2 border-[#161d2f] rounded-2xl p-6 mb-8">
+                {searchError && (
+                  <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                    {searchError}
+                  </div>
+                )}
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-4 flex-1 px-6 py-5 bg-[#050810] border border-[#161d2f] rounded-xl">
                     <Sparkles className="w-6 h-6 text-gray-600" />
@@ -298,7 +300,12 @@ export function DNAExtraction() {
                       className="flex-1 bg-transparent text-white text-lg outline-none placeholder:text-gray-600"
                     />
                   </div>
-                  <button className="px-8 py-5 bg-gradient-to-r from-[#ec4899] to-[#8b5cf6] hover:opacity-90 rounded-xl text-white font-bold text-sm uppercase tracking-wide shadow-lg shadow-pink-500/30 transition-all">
+                  <button
+                    onClick={handleFindBest}
+                    disabled={searchLoading}
+                    className="px-8 py-5 bg-gradient-to-r from-[#ec4899] to-[#8b5cf6] hover:opacity-90 disabled:opacity-60 rounded-xl text-white font-bold text-sm uppercase tracking-wide shadow-lg shadow-pink-500/30 transition-all flex items-center gap-2"
+                  >
+                    {searchLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                     FIND BEST
                   </button>
                 </div>
@@ -363,11 +370,12 @@ export function DNAExtraction() {
                 {selectedIds.size > 0 && (
                   <motion.button
                     onClick={cloneSelected}
-                    className="px-6 py-3 bg-gradient-to-r from-[#ec4899] to-[#8b5cf6] hover:opacity-90 rounded-xl text-white font-bold text-sm shadow-lg shadow-pink-500/30 transition-all flex items-center gap-2"
-                    whileHover={{ scale: 1.02 }}
+                    disabled={clonePromptsLoading}
+                    className="px-6 py-3 bg-gradient-to-r from-[#ec4899] to-[#8b5cf6] hover:opacity-90 disabled:opacity-60 rounded-xl text-white font-bold text-sm shadow-lg shadow-pink-500/30 transition-all flex items-center gap-2"
+                    whileHover={clonePromptsLoading ? {} : { scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    <Sparkles className="w-4 h-4" />
+                    {clonePromptsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                     CLONE SELECTED
                   </motion.button>
                 )}
@@ -518,6 +526,26 @@ export function DNAExtraction() {
                 </button>
               </div>
             </div>
+
+            {clonePromptsLoading && (
+              <div className="mb-6 flex items-center gap-3 text-gray-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Generating cloning prompts...</span>
+              </div>
+            )}
+            {clonePromptsError && (
+              <div className="mb-6 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                {clonePromptsError}
+              </div>
+            )}
+            {showClonePrompts && clonePrompts.length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-white font-bold text-lg mb-4" style={{ fontFamily: 'Space Grotesk' }}>
+                  Generated prompts ({clonePrompts.length})
+                </h3>
+                <PromptTable prompts={clonePrompts} />
+              </div>
+            )}
 
             {/* Clone Settings Panel */}
             <motion.div 
