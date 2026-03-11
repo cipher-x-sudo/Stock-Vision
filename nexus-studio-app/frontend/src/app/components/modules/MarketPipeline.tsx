@@ -10,6 +10,41 @@ import { api, mapApiPromptsToRows, type SuggestedEvent, type TrackAdobeImage, ty
 
 type EventCard = { id: string; icon: string; title: string; daysUntil: number };
 
+/** Map Font Awesome class names (from API) to emoji so we don't render "fa-solid fa-clover" as text. */
+const FA_TO_EMOJI: Record<string, string> = {
+  clover: "🍀",
+  seedling: "🌱",
+  palette: "🎨",
+  egg: "🥚",
+  moon: "🌙",
+  gift: "🎁",
+  tree: "🎄",
+  pumpkin: "🎃",
+  heart: "💝",
+  fire: "🎆",
+  turkey: "🦃",
+  graduation: "🎓",
+  sun: "☀️",
+  star: "⭐",
+  snowflake: "❄️",
+  leaf: "🍂",
+  cake: "🎂",
+  champagne: "🍾",
+  bell: "🔔",
+  calendar: "📅",
+  mosque: "🕌",
+  starandcrescent: "🌙",
+  dove: "🕊️",
+  compact: "📅",
+};
+
+function iconToEmoji(iconClass: string): string {
+  if (!iconClass || iconClass.startsWith("http") || !iconClass.includes("fa-")) return iconClass || "📅";
+  const match = iconClass.match(/fa-[a-z-]+\s+fa-([a-z0-9-]+)/i) || iconClass.match(/fa-([a-z0-9-]+)/i);
+  const key = match ? match[1].toLowerCase() : "";
+  return FA_TO_EMOJI[key] ?? "📅";
+}
+
 function daysUntil(dateStr: string): number {
   const d = new Date(dateStr);
   const today = new Date();
@@ -202,7 +237,7 @@ export function MarketPipeline() {
                 whileTap={{ scale: 0.98 }}
               >
                 <div className="text-center">
-                  <div className="text-4xl mb-2">{event.icon}</div>
+                  <div className="text-4xl mb-2">{iconToEmoji(event.icon)}</div>
                   <h3 className="text-white font-medium mb-2">{event.title}</h3>
                   <div className="px-3 py-1 bg-[#0ea5e9]/20 border border-[#0ea5e9] rounded-full inline-block">
                     <span className="text-[#0ea5e9] font-mono" style={{ fontSize: '0.75rem' }}>
