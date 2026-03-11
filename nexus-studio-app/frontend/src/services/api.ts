@@ -112,6 +112,45 @@ export function mapApiPromptsToRows(prompts: ImagePromptFromApi[]): PromptRow[] 
   }));
 }
 
+// ── Flow (Veo4K) types (match backend) ─────────────────────────
+/** GET /api/flow/config response. */
+export interface FlowConfig {
+  imageModels: string[];
+  videoModels: string[];
+  imageAspects: string[];
+  videoAspects: string[];
+  defaults: {
+    imageModel: string;
+    videoModel: string;
+    imageAspect: string;
+    videoAspect: string;
+    imageCount: number;
+  };
+  outputDir?: string;
+  autoDownload?: boolean;
+  autoDownloadUpscaledOnly?: boolean;
+  cloudPullOnStartup?: boolean;
+  autoDownloadPrefix?: string;
+  autoDownloadSuffix?: string;
+  maxConcurrentUpscales?: number;
+  upscaleStartDelayMs?: number;
+  configFilePath?: string;
+}
+
+/** Item from GET /api/flow/history { items }. */
+export interface FlowHistoryItem {
+  type: "image" | "video";
+  url: string;
+  thumbnail_url?: string;
+  prompt: string;
+  model?: string;
+  aspect?: string;
+  seed?: number;
+  media_generation_id?: string;
+  has4K?: boolean;
+  upscaled4K?: unknown;
+}
+
 // ── API methods ────────────────────────────────────────────────
 
 export const api = {
@@ -223,15 +262,9 @@ export const api = {
   // ── Veo4K Flow (image/video generation) ───────────────────────────────────
 
   /** GET /api/flow/config — model lists and defaults (matches backend flow config). */
-  async flowConfig(): Promise<{
-    imageModels: string[];
-    videoModels: string[];
-    imageAspects: string[];
-    videoAspects: string[];
-    defaults: { imageModel: string; videoModel: string; imageAspect: string; videoAspect: string; imageCount: number };
-  }> {
+  async flowConfig(): Promise<FlowConfig> {
     try {
-      return await get("/api/flow/config");
+      return await get<FlowConfig>("/api/flow/config");
     } catch {
       return {
         imageModels: ["Imagen 4", "Nano Banana", "Nano Banana Pro"],
@@ -247,6 +280,17 @@ export const api = {
         },
       };
     }
+  },
+
+  /** GET /api/flow/history — Flow-generated items (merged with Flow project workflows). */
+  async flowHistory(params?: { type?: "images" | "videos" }): Promise<{ items: FlowHistoryItem[] }> {
+    const qs = params?.type ? { type: params.type } : undefined;
+    return get<{ items: FlowHistoryItem[] }>("/api/flow/history", qs as Record<string, string>);
+  },
+
+  /** GET /api/flow/auth/status — Flow auth ready, projectId, hasToken. */
+  async flowAuthStatus(): Promise<{ ready: boolean; projectId: string | null; hasToken: boolean }> {
+    return get("/api/flow/auth/status");
   },
 
   /** POST /api/flow/generate — start image or video generation job. Returns jobId. */

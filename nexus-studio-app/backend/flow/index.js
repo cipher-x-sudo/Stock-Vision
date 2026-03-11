@@ -28,7 +28,7 @@ const PORT = Number(process.env.PORT) || 8765;
 /** When true, this module is used by merged Nexus Studio backend; do not listen. */
 const MERGED = process.env.NEXUS_STUDIO_MERGED === '1';
 
-export function createLog() {
+function createLog() {
   return (msg) => {
     const out = `[LOG] ${msg}`;
     console.log(out);
@@ -142,83 +142,84 @@ async function initBackend(state) {
   }
 }
 
-const app = express();
-app.use(cors({
-  origin: ['http://localhost:8765', 'http://127.0.0.1:8765', 'file://'],
-  credentials: true,
-}));
-app.use(express.json({ limit: '100mb' }));
-
-const rootLog = createLog();
-const state = {
-  _rootLog: rootLog,
-  _log: rootLog,
-  browser: null,
-  auth_state: null,
-  api_client: null,
-  image_api: null,
-  video_api: null,
-  recaptcha: null,
-  stats: { images: 0, videos: 0, failed: 0, success: 0, e404: 0, apiErr: 0 },
-  generated_items: [],
-  jobs: {},
-  queue_items: [],
-  queue_stop_requested: true,
-  output_dir: loadAppConfig().outputDir,
-  auto_download: loadAppConfig().autoDownload,
-  auto_download_upscaled_only: loadAppConfig().autoDownloadUpscaledOnly,
-  auto_download_prefix: loadAppConfig().autoDownloadPrefix ?? '',
-  auto_download_suffix: loadAppConfig().autoDownloadSuffix ?? '',
-};
-app.state = state;
-
-let server = null;
-
-async function main() {
-  if (getCredentials()) {
-    try {
-      const result = await pullCookies();
-      state._log('Cloud cookies pulled on startup');
-      state._log(`Cloud cookies written to ${result.path || COOKIES_FILE} (${result.cookieCount ?? '?'} cookies)`);
-      await new Promise((r) => setTimeout(r, 150));
-    } catch (e) {
-      state._log(`Cloud pull on startup: ${e.message}`);
-    }
-  }
-  await initBackend(state);
-  registerRoutes(app);
-
-  app.get('/', (req, res) => {
-    if (fs.existsSync(INDEX_HTML)) res.sendFile(INDEX_HTML);
-    else res.json({ message: 'Flow Generator API', frontend: 'Build frontend and restart.' });
-  });
-
-  if (fs.existsSync(ASSETS)) {
-    app.use('/assets', express.static(ASSETS));
-  }
-
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/assets')) return next();
-    if (fs.existsSync(INDEX_HTML)) return res.sendFile(INDEX_HTML);
-    next();
-  });
-
-  server = app.listen(PORT, '127.0.0.1', () => {
-    state._log(`Backend listening on http://127.0.0.1:${PORT}`);
-  });
-}
-
-function shutdown() {
-  if (state.browser) {
-    state.browser.close().catch(() => { });
-    state.browser = null;
-  }
-  if (server) server.close();
-}
-
 if (!MERGED) {
+  const app = express();
+  app.use(cors({
+    origin: ['http://localhost:8765', 'http://127.0.0.1:8765', 'file://'],
+    credentials: true,
+  }));
+  app.use(express.json({ limit: '100mb' }));
+
+  const rootLog = createLog();
+  const state = {
+    _rootLog: rootLog,
+    _log: rootLog,
+    browser: null,
+    auth_state: null,
+    api_client: null,
+    image_api: null,
+    video_api: null,
+    recaptcha: null,
+    stats: { images: 0, videos: 0, failed: 0, success: 0, e404: 0, apiErr: 0 },
+    generated_items: [],
+    jobs: {},
+    queue_items: [],
+    queue_stop_requested: true,
+    output_dir: loadAppConfig().outputDir,
+    auto_download: loadAppConfig().autoDownload,
+    auto_download_upscaled_only: loadAppConfig().autoDownloadUpscaledOnly,
+    auto_download_prefix: loadAppConfig().autoDownloadPrefix ?? '',
+    auto_download_suffix: loadAppConfig().autoDownloadSuffix ?? '',
+  };
+  app.state = state;
+
+  let server = null;
+
+  async function main() {
+    if (getCredentials()) {
+      try {
+        const result = await pullCookies();
+        state._log('Cloud cookies pulled on startup');
+        state._log(`Cloud cookies written to ${result.path || COOKIES_FILE} (${result.cookieCount ?? '?'} cookies)`);
+        await new Promise((r) => setTimeout(r, 150));
+      } catch (e) {
+        state._log(`Cloud pull on startup: ${e.message}`);
+      }
+    }
+    await initBackend(state);
+    registerRoutes(app);
+
+    app.get('/', (req, res) => {
+      if (fs.existsSync(INDEX_HTML)) res.sendFile(INDEX_HTML);
+      else res.json({ message: 'Flow Generator API', frontend: 'Build frontend and restart.' });
+    });
+
+    if (fs.existsSync(ASSETS)) {
+      app.use('/assets', express.static(ASSETS));
+    }
+
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/assets')) return next();
+      if (fs.existsSync(INDEX_HTML)) return res.sendFile(INDEX_HTML);
+      next();
+    });
+
+    server = app.listen(PORT, '127.0.0.1', () => {
+      state._log(`Backend listening on http://127.0.0.1:${PORT}`);
+    });
+  }
+
+  function shutdown() {
+    if (state.browser) {
+      state.browser.close().catch(() => { });
+      state.browser = null;
+    }
+    if (server) server.close();
+  }
+
   process.on('SIGINT', () => { shutdown(); process.exit(0); });
   process.on('SIGTERM', () => { shutdown(); process.exit(0); });
+
   main().catch((e) => {
     console.error(e);
     process.exit(1);

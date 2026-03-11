@@ -4,8 +4,6 @@ import { motion } from "motion/react";
 import * as Slider from "@radix-ui/react-slider";
 import * as Select from "@radix-ui/react-select";
 import { PromptTable } from "../PromptTable";
-import { api, mapApiPromptsToRows } from "@/services/api";
-import { toast } from "sonner";
 
 const aestheticOptions = [
   "Cinematic",
@@ -27,7 +25,6 @@ export function Conceptualize() {
   const [selectedAesthetics, setSelectedAesthetics] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPrompts, setShowPrompts] = useState(false);
-  const [prompts, setPrompts] = useState<Array<{ id: number; scene: string; style: string; lighting: string }>>([]);
 
   const toggleAesthetic = (aesthetic: string) => {
     setSelectedAesthetics((prev) =>
@@ -37,20 +34,22 @@ export function Conceptualize() {
     );
   };
 
-  const handleConceptualize = async () => {
+  const handleConceptualize = () => {
     setIsGenerating(true);
     setShowPrompts(false);
-    try {
-      const count = Math.min(Math.max(volume[0], 1), 100);
-      const { prompts: p } = await api.generateIdeaPrompts({ idea: concept.trim(), count });
-      setPrompts(mapApiPromptsToRows(p ?? []));
-      setShowPrompts(true);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Conceptualize failed");
-    } finally {
+    
+    setTimeout(() => {
       setIsGenerating(false);
-    }
+      setShowPrompts(true);
+    }, 2000);
   };
+
+  const prompts = Array.from({ length: volume[0] }, (_, i) => ({
+    id: i + 1,
+    scene: `${concept || "Creative concept"} - variation ${i + 1}`,
+    style: selectedAesthetics[i % selectedAesthetics.length] || "Photorealistic",
+    lighting: i % 4 === 0 ? "Volumetric" : i % 4 === 1 ? "Ambient" : i % 4 === 2 ? "Accent" : "Dramatic rim",
+  }));
 
   return (
     <div className="min-h-screen bg-[#050810] p-8">
@@ -205,7 +204,7 @@ export function Conceptualize() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <PromptTable prompts={prompts.length ? prompts : [{ id: 1, scene: "No prompts generated.", style: "", lighting: "" }]} />
+            <PromptTable prompts={prompts} />
           </motion.div>
         )}
       </div>

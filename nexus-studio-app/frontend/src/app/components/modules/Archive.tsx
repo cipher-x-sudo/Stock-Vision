@@ -1,81 +1,41 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router";
+import { useState } from "react";
 import { Search, Film, X, BarChart3 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import Masonry from "react-responsive-masonry";
-import { api } from "@/services/api";
 
-interface ScanRow {
-  id: string;
-  date: string;
-  event: string;
-  analyzed: number;
-  prompts: number;
-}
+const mockScans = [
+  { id: 1, date: "2026-03-09", event: "Spring Fashion Trends", analyzed: 1247, prompts: 100 },
+  { id: 2, date: "2026-03-08", event: "Product Photography Styles", analyzed: 892, prompts: 75 },
+  { id: 3, date: "2026-03-07", event: "Christmas Campaign Ideas", analyzed: 2103, prompts: 100 },
+  { id: 4, date: "2026-03-06", event: "Tech Product Launches", analyzed: 634, prompts: 50 },
+  { id: 5, date: "2026-03-05", event: "Summer Travel Destinations", analyzed: 1876, prompts: 100 },
+];
 
-interface MediaRow {
-  id: string;
-  type: "image" | "video";
-  prompt: string;
-  url: string;
-  date: string;
-  seed?: number;
-}
+const mockMediaItems = [
+  { id: 1, type: "image", prompt: "Cinematic sunset over ocean with dramatic clouds", seed: 842371, date: "2026-03-09" },
+  { id: 2, type: "video", prompt: "Smooth camera pan through neon cityscape", seed: 391847, date: "2026-03-09" },
+  { id: 3, type: "image", prompt: "Minimalist product photography on marble surface", seed: 627194, date: "2026-03-08" },
+  { id: 4, type: "image", prompt: "Abstract geometric patterns in pastel colors", seed: 194827, date: "2026-03-08" },
+  { id: 5, type: "video", prompt: "Aerial drone shot descending into forest", seed: 573921, date: "2026-03-07" },
+  { id: 6, type: "image", prompt: "Macro photography of water droplets on leaf", seed: 847391, date: "2026-03-07" },
+  { id: 7, type: "image", prompt: "Hyperrealistic portrait with studio lighting", seed: 298473, date: "2026-03-06" },
+  { id: 8, type: "video", prompt: "Time-lapse of clouds moving over mountains", seed: 647281, date: "2026-03-06" },
+  { id: 9, type: "image", prompt: "Cyberpunk street scene with neon signs", seed: 918374, date: "2026-03-05" },
+  { id: 10, type: "image", prompt: "Vintage film aesthetic sunset beach scene", seed: 482937, date: "2026-03-05" },
+];
 
 export function Archive() {
-  const navigate = useNavigate();
   const [activeView, setActiveView] = useState<"scans" | "media">("scans");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedScan, setSelectedScan] = useState<string | null>(null);
-  const [selectedMedia, setSelectedMedia] = useState<MediaRow | null>(null);
-  const [scans, setScans] = useState<ScanRow[]>([]);
-  const [mediaItems, setMediaItems] = useState<MediaRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedScan, setSelectedScan] = useState<number | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<number | null>(null);
 
-  useEffect(() => {
-    Promise.all([
-      api.history().then(({ history }) => {
-        const list = (history as Array<{ id?: string; timestamp?: number; event?: string; name?: string; analyzed?: number; prompts?: number; promptCount?: number }>) ?? [];
-        return list.map((h) => ({
-          id: h.id ?? "",
-          date: h.timestamp ? new Date(h.timestamp).toISOString().slice(0, 10) : "",
-          event: h.event ?? h.name ?? "Scan",
-          analyzed: h.analyzed ?? 0,
-          prompts: h.prompts ?? h.promptCount ?? 0,
-        }));
-      }),
-      api.historyImages().then(({ images }) =>
-        (images ?? []).map((f: { filename: string; url: string; timestamp: number }) => ({
-          id: f.url,
-          type: "image" as const,
-          prompt: f.filename,
-          url: f.url.startsWith("http") ? f.url : `${(import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")}${f.url}`,
-          date: f.timestamp ? new Date(f.timestamp).toISOString().slice(0, 10) : "",
-        }))
-      ),
-      api.historyVideos().then(({ videos }) =>
-        (videos ?? []).map((f: { filename: string; url: string; timestamp: number }) => ({
-          id: f.url,
-          type: "video" as const,
-          prompt: f.filename,
-          url: f.url.startsWith("http") ? f.url : `${(import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")}${f.url}`,
-          date: f.timestamp ? new Date(f.timestamp).toISOString().slice(0, 10) : "",
-        }))
-      ),
-    ])
-      .then(([scanList, imgList, vidList]) => {
-        setScans(scanList);
-        setMediaItems([...imgList, ...vidList]);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const filteredScans = scans.filter((scan) =>
+  const filteredScans = mockScans.filter((scan) =>
     scan.event.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredMedia = mediaItems.filter((item) =>
+  const filteredMedia = mockMediaItems.filter((item) =>
     item.prompt.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -152,11 +112,7 @@ export function Archive() {
                   </tr>
                 </thead>
                 <tbody>
-                  {loading ? (
-                    <tr><td colSpan={4} className="px-6 py-8 text-gray-500 text-center">Loading...</td></tr>
-                  ) : filteredScans.length === 0 ? (
-                    <tr><td colSpan={4} className="px-6 py-8 text-gray-500 text-center">No scans yet.</td></tr>
-                  ) : filteredScans.map((scan, index) => (
+                  {filteredScans.map((scan, index) => (
                     <motion.tr
                       key={scan.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -183,11 +139,6 @@ export function Archive() {
 
         {/* Media Renders View */}
         {activeView === "media" && (
-          loading ? (
-            <div className="text-gray-500 py-12 text-center">Loading media...</div>
-          ) : filteredMedia.length === 0 ? (
-            <div className="text-gray-500 py-12 text-center">No media yet.</div>
-          ) : (
           <Masonry columnsCount={4} gutter="16px">
             {filteredMedia.map((item, index) => (
               <motion.div
@@ -195,15 +146,10 @@ export function Archive() {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: index * 0.05 }}
-                onClick={() => setSelectedMedia(item)}
+                onClick={() => setSelectedMedia(item.id)}
                 className="bg-[#0a0f1d] border border-[#161d2f] rounded-lg overflow-hidden hover:border-[#0ea5e9] transition-all cursor-pointer group"
               >
                 <div className="aspect-[4/3] bg-gradient-to-br from-[#161d2f] to-[#0a0f1d] relative">
-                  {item.type === "video" ? (
-                    <video src={item.url} className="w-full h-full object-cover" muted />
-                  ) : (
-                    <img src={item.url} alt={item.prompt} className="w-full h-full object-cover" />
-                  )}
                   {item.type === "video" && (
                     <div className="absolute top-2 left-2 px-2 py-1 bg-[#f59e0b] rounded-full flex items-center gap-1">
                       <Film className="w-3 h-3 text-white" />
@@ -222,15 +168,11 @@ export function Archive() {
               </motion.div>
             ))}
           </Masonry>
-          )
         )}
 
         {/* Scan Detail Drawer */}
         <AnimatePresence>
-          {selectedScan !== null && (() => {
-            const scan = scans.find((s) => s.id === selectedScan);
-            if (!scan) return null;
-            return (
+          {selectedScan !== null && (
             <>
               <motion.div
                 initial={{ opacity: 0 }}
@@ -249,8 +191,12 @@ export function Archive() {
                 <div className="p-6">
                   <div className="flex items-start justify-between mb-6">
                     <div>
-                      <h2 className="text-white font-bold mb-2" style={{ fontSize: '1.5rem' }}>{scan.event}</h2>
-                      <p className="text-gray-400">{scan.date}</p>
+                      <h2 className="text-white font-bold mb-2" style={{ fontSize: '1.5rem' }}>
+                        {mockScans.find((s) => s.id === selectedScan)?.event}
+                      </h2>
+                      <p className="text-gray-400">
+                        {mockScans.find((s) => s.id === selectedScan)?.date}
+                      </p>
                     </div>
                     <button
                       onClick={() => setSelectedScan(null)}
@@ -259,26 +205,47 @@ export function Archive() {
                       <X className="w-5 h-5" />
                     </button>
                   </div>
+
                   <div className="space-y-6">
                     <div className="bg-[#161d2f]/30 rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">Analysis Summary</h3>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <p className="text-gray-500" style={{ fontSize: '0.875rem' }}>Items Analyzed</p>
-                          <p className="text-white font-bold" style={{ fontSize: '1.5rem' }}>{scan.analyzed.toLocaleString()}</p>
+                          <p className="text-gray-500" style={{ fontSize: '0.875rem' }}>
+                            Items Analyzed
+                          </p>
+                          <p className="text-white font-bold" style={{ fontSize: '1.5rem' }}>
+                            {mockScans.find((s) => s.id === selectedScan)?.analyzed.toLocaleString()}
+                          </p>
                         </div>
                         <div>
-                          <p className="text-gray-500" style={{ fontSize: '0.875rem' }}>Prompts Generated</p>
-                          <p className="text-[#10b981] font-bold" style={{ fontSize: '1.5rem' }}>{scan.prompts}</p>
+                          <p className="text-gray-500" style={{ fontSize: '0.875rem' }}>
+                            Prompts Generated
+                          </p>
+                          <p className="text-[#10b981] font-bold" style={{ fontSize: '1.5rem' }}>
+                            {mockScans.find((s) => s.id === selectedScan)?.prompts}
+                          </p>
                         </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="text-white font-semibold mb-3">Generated Prompts</h3>
+                      <div className="space-y-2">
+                        {Array.from({ length: 5 }, (_, i) => (
+                          <div key={i} className="bg-[#161d2f]/30 rounded-lg p-3">
+                            <p className="text-gray-300" style={{ fontSize: '0.875rem' }}>
+                              Sample prompt {i + 1} from this scan session
+                            </p>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
                 </div>
               </motion.div>
             </>
-            );
-          })()}
+          )}
         </AnimatePresence>
 
         {/* Media Detail Modal */}
@@ -299,17 +266,16 @@ export function Archive() {
                   onClick={(e) => e.stopPropagation()}
                   className="w-full max-w-6xl bg-[#0a0f1d] border border-[#161d2f] rounded-2xl overflow-hidden flex"
                 >
+                  {/* Left - Media */}
                   <div className="flex-[7] bg-[#050810] flex items-center justify-center p-8">
-                    {selectedMedia.type === "video" ? (
-                      <video src={selectedMedia.url} controls className="w-full max-h-[70vh] rounded-lg" />
-                    ) : (
-                      <img src={selectedMedia.url} alt={selectedMedia.prompt} className="max-w-full max-h-[70vh] rounded-lg object-contain" />
-                    )}
+                    <div className="w-full aspect-video bg-gradient-to-br from-[#161d2f] to-[#0a0f1d] rounded-lg" />
                   </div>
+
+                  {/* Right - Details */}
                   <div className="flex-[3] p-6 space-y-6">
                     <div className="flex items-start justify-between">
                       <h3 className="text-white font-bold" style={{ fontSize: '1.25rem' }}>
-                        {selectedMedia.type === "video" ? "Video" : "Image"}
+                        {mockMediaItems.find((m) => m.id === selectedMedia)?.type === "video" ? "Video" : "Image"}
                       </h3>
                       <button
                         onClick={() => setSelectedMedia(null)}
@@ -318,24 +284,36 @@ export function Archive() {
                         <X className="w-5 h-5" />
                       </button>
                     </div>
+
                     <div className="space-y-4">
                       <div>
-                        <p className="text-gray-500 mb-2" style={{ fontSize: '0.875rem' }}>Prompt / Filename</p>
-                        <p className="text-white bg-[#161d2f]/30 rounded-lg p-3">{selectedMedia.prompt}</p>
+                        <p className="text-gray-500 mb-2" style={{ fontSize: '0.875rem' }}>
+                          Prompt
+                        </p>
+                        <p className="text-white bg-[#161d2f]/30 rounded-lg p-3">
+                          {mockMediaItems.find((m) => m.id === selectedMedia)?.prompt}
+                        </p>
                       </div>
+
                       <div>
-                        <p className="text-gray-500 mb-2" style={{ fontSize: '0.875rem' }}>Created</p>
-                        <p className="text-white font-mono bg-[#161d2f]/30 rounded-lg p-3">{selectedMedia.date}</p>
+                        <p className="text-gray-500 mb-2" style={{ fontSize: '0.875rem' }}>
+                          Seed
+                        </p>
+                        <p className="text-white font-mono bg-[#161d2f]/30 rounded-lg p-3">
+                          {mockMediaItems.find((m) => m.id === selectedMedia)?.seed}
+                        </p>
                       </div>
+
+                      <div>
+                        <p className="text-gray-500 mb-2" style={{ fontSize: '0.875rem' }}>
+                          Created
+                        </p>
+                        <p className="text-white font-mono bg-[#161d2f]/30 rounded-lg p-3">
+                          {mockMediaItems.find((m) => m.id === selectedMedia)?.date}
+                        </p>
+                      </div>
+
                       <motion.button
-                        onClick={() => {
-                          setSelectedMedia(null);
-                          if (selectedMedia.type === "image") {
-                            navigate("/dna", { state: { imageUrl: selectedMedia.url } });
-                          } else {
-                            navigate("/image-studio", { state: { prompts: [{ scene: selectedMedia.prompt, style: "", lighting: "" }] } });
-                          }
-                        }}
                         className="w-full px-6 py-3 bg-[#0ea5e9] hover:bg-[#0ea5e9]/90 rounded-lg text-white font-bold transition-all"
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
@@ -352,4 +330,5 @@ export function Archive() {
       </div>
     </div>
   );
+}
 }

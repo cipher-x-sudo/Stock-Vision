@@ -21,8 +21,8 @@ const modules = [
     path: "/dna-extraction", 
     icon: Dna, 
     label: "DNA Extraction",
-    color: "#10b981",
-    gradient: "from-[#10b981] to-[#34d399]"
+    color: "#ec4899",
+    gradient: "from-[#ec4899] to-[#8b5cf6]"
   },
   { 
     path: "/image-studio", 

@@ -1,12 +1,9 @@
-import { useState, useEffect } from "react";
-import { useLocation } from "react-router";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Sparkles, Image as ImageIcon, Loader2, CheckCircle, 
-  Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Plus, PlayCircle, Copy
+  Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Plus, PlayCircle, Copy, Upload, FileText
 } from "lucide-react";
-import { api } from "@/services/api";
-import { toast } from "sonner";
 
 interface QueueItem {
   id: number;
@@ -17,46 +14,36 @@ interface QueueItem {
   progress?: number;
   imageUrl?: string;
   timestamp: Date;
+  referenceImages?: string[];
 }
 
-const DEFAULT_IMAGE_MODELS = ["Imagen 4", "Nano Banana", "Nano Banana Pro"];
-const DEFAULT_IMAGE_MODEL = "Nano Banana Pro";
+interface PromptMapping {
+  [filename: string]: string;
+}
 
 export function ImageStudio() {
-  const location = useLocation();
   const [prompt, setPrompt] = useState("");
-  const [imageModels, setImageModels] = useState<string[]>(DEFAULT_IMAGE_MODELS);
-  const [model, setModel] = useState(DEFAULT_IMAGE_MODEL);
+  const [model, setModel] = useState("Imagen 3.5");
   const [ratio, setRatio] = useState("1:1");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedItem, setSelectedItem] = useState<QueueItem | null>(null);
-
-  useEffect(() => {
-    api.flowConfig().then((c) => {
-      setImageModels(c.imageModels.length ? c.imageModels : DEFAULT_IMAGE_MODELS);
-      if (c.defaults?.imageModel) setModel(c.defaults.imageModel);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const statePrompts = (location.state as { prompts?: Array<{ scene?: string; style?: string; lighting?: string }> })?.prompts;
-    if (statePrompts?.length) {
-      const items: QueueItem[] = statePrompts.map((p, i) => ({
-        id: Date.now() + i,
-        prompt: typeof p === "string" ? p : (p.scene ?? ""),
-        model,
-        ratio,
-        status: "pending" as const,
-        timestamp: new Date(),
-      }));
-      setQueue(prev => [...items, ...prev]);
-      window.history.replaceState({}, "", location.pathname);
-    }
-  }, []);
+  const [referenceImages, setReferenceImages] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [promptMapping, setPromptMapping] = useState<PromptMapping>({});
+  const [csvLoaded, setCsvLoaded] = useState(false);
+  const [mode, setMode] = useState<"text-to-image" | "image-to-image">("text-to-image");
+  const [resolution, setResolution] = useState("1K");
+  const [count, setCount] = useState(2);
+  const [seed, setSeed] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const addToQueue = () => {
     if (!prompt.trim()) return;
+    
     const newItem: QueueItem = {
       id: Date.now(),
       prompt,
@@ -65,49 +52,140 @@ export function ImageStudio() {
       status: "pending",
       progress: 0,
       timestamp: new Date(),
+      referenceImages: referenceImages.length > 0 ? [...referenceImages] : undefined,
     };
+    
     setQueue([newItem, ...queue]);
     setPrompt("");
+    setReferenceImages([]);
   };
 
-  const flowAspect = ratio === "16:9" ? "16:9 Landscape" : ratio === "9:16" ? "9:16 Portrait" : "1:1 Square";
-
-  const generateItem = async (id: number) => {
-    const item = queue.find((q) => q.id === id);
-    if (!item || item.status !== "pending") return;
-    setQueue(prev => prev.map(q => q.id === id ? { ...q, status: "rendering" as const } : q));
-    try {
-      const { jobId } = await api.flowGenerate({
-        prompt: item.prompt,
-        mode: "image",
-        model,
-        aspect: flowAspect,
-        count: 1,
-      });
-      const poll = async (): Promise<string> => {
-        const st = await api.flowGenerateStatus(jobId);
-        if (st.status === "done" && st.result?.images?.length) {
-          const url = st.result.images[0].url;
-          if (url) return url.startsWith("http") ? url : `${import.meta.env.VITE_API_URL || ""}${url}`;
-        }
-        if (st.status === "error" || st.error) throw new Error(st.error || "Generation failed");
-        await new Promise((r) => setTimeout(r, 1500));
-        return poll();
-      };
-      const imageUrl = await poll();
-      setQueue(prev => prev.map(q =>
-        q.id === id ? { ...q, status: "success" as const, progress: 100, imageUrl } : q
-      ));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Generate failed");
-      setQueue(prev => prev.map(q => q.id === id ? { ...q, status: "failed" as const } : q));
+  const handleFiles = (files: FileList | null) => {
+    if (!files) return;
+    
+    const newImages: string[] = [];
+    let loaded = 0;
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          newImages.push(e.target?.result as string);
+          loaded++;
+          if (loaded === files.length) {
+            setReferenceImages(prev => [...prev, ...newImages]);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    
+    // Process and auto-add images to queue
+    const newQueueItems: QueueItem[] = [];
+    let loaded = 0;
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const imageData = event.target?.result as string;
+          
+          // Get prompt from CSV mapping or use default
+          const fileName = file.name;
+          const mappedPrompt = promptMapping[fileName];
+          const itemPrompt = mappedPrompt || prompt.trim() || `Image-to-image generation ${i + 1}`;
+          
+          // Create a new queue item for each dropped image
+          const newItem: QueueItem = {
+            id: Date.now() + i,
+            prompt: itemPrompt,
+            model,
+            ratio,
+            status: "pending",
+            progress: 0,
+            timestamp: new Date(),
+            referenceImages: [imageData],
+          };
+          
+          newQueueItems.push(newItem);
+          loaded++;
+          
+          // When all images are loaded, add them to queue
+          if (loaded === files.length) {
+            setQueue(prev => [...newQueueItems, ...prev]);
+            // Clear prompt after auto-adding
+            setPrompt("");
+          }
+        };
+        reader.readAsDataURL(file);
+      } else {
+        loaded++;
+      }
+    }
+  };
+
+  const removeReferenceImage = (index: number) => {
+    setReferenceImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const generateItem = (id: number) => {
+    setQueue(prev => prev.map(item => 
+      item.id === id ? { ...item, status: "rendering" as const, progress: 0 } : item
+    ));
+    
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 15;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        
+        const mockImageUrl = `https://picsum.photos/seed/${id}/800/800`;
+        
+        setTimeout(() => {
+          setQueue(prev => prev.map(item => 
+            item.id === id ? { 
+              ...item, 
+              status: "success" as const, 
+              progress: 100,
+              imageUrl: mockImageUrl 
+            } : item
+          ));
+        }, 500);
+      } else {
+        setQueue(prev => prev.map(item => 
+          item.id === id ? { ...item, progress } : item
+        ));
+      }
+    }, 400);
   };
 
   const generateAll = () => {
     const pendingItems = queue.filter(item => item.status === "pending");
     pendingItems.forEach((item, index) => {
-      setTimeout(() => generateItem(item.id), index * 800);
+      setTimeout(() => {
+        generateItem(item.id);
+      }, index * 300);
     });
   };
 
@@ -139,6 +217,34 @@ export function ImageStudio() {
   const queuedCount = queue.filter(item => item.status === "queued").length;
   const renderingCount = queue.filter(item => item.status === "rendering").length;
   const completedCount = queue.filter(item => item.status === "success").length;
+
+  const handleCsvUpload = (files: FileList | null) => {
+    if (!files) return;
+    
+    const file = files[0];
+    if (file.type !== 'text/csv') {
+      alert('Please upload a CSV file.');
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const csvData = e.target?.result as string;
+      const rows = csvData.split('\n').map(row => row.trim());
+      const mapping: PromptMapping = {};
+      
+      rows.forEach(row => {
+        const [filename, prompt] = row.split(',');
+        if (filename && prompt) {
+          mapping[filename] = prompt;
+        }
+      });
+      
+      setPromptMapping(mapping);
+      setCsvLoaded(true);
+    };
+    reader.readAsText(file);
+  };
 
   return (
     <div className="h-full bg-[#050810] flex flex-col">
@@ -223,82 +329,281 @@ export function ImageStudio() {
       <div className="flex-1 overflow-y-auto">
         {/* Prompt Section */}
         <div className="max-w-5xl mx-auto px-8 py-12">
-          <div className="relative">
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe the image you want to create..."
-              className="w-full h-[300px] px-8 py-8 bg-[#0a0f1d] border-2 border-[#161d2f] focus:border-[#f59e0b] rounded-2xl text-white text-xl font-['JetBrains_Mono'] leading-relaxed placeholder:text-gray-700 outline-none resize-none transition-all"
-              style={{ fontWeight: 300 }}
-              autoFocus
-            />
+          <div 
+            className="relative"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <div className={`relative transition-all ${isDragging ? 'opacity-50' : ''}`}>
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe the image you want to create..."
+                className="w-full h-[300px] px-8 py-8 bg-[#0a0f1d] border-2 border-[#161d2f] focus:border-[#f59e0b] rounded-2xl text-white text-xl font-['JetBrains_Mono'] leading-relaxed placeholder:text-gray-700 outline-none resize-none transition-all"
+                style={{ fontWeight: 300 }}
+                autoFocus
+              />
 
-            {/* Floating Bottom Bar */}
-            <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="px-3 py-1.5 bg-[#050810]/90 backdrop-blur-sm border border-[#161d2f] rounded-lg text-gray-500 font-mono text-xs">
-                  {prompt.length} characters
-                </span>
-                <button className="px-4 py-1.5 bg-[#050810]/90 backdrop-blur-sm border border-[#161d2f] hover:border-[#f59e0b] rounded-lg text-gray-400 hover:text-white font-medium text-xs transition-all flex items-center gap-2">
-                  <Settings className="w-3.5 h-3.5" />
-                  Settings
-                </button>
+              {/* Reference Images Grid - Inside Prompt Area */}
+              {referenceImages.length > 0 && (
+                <div className="absolute top-6 left-6 right-6 flex flex-wrap gap-2">
+                  {referenceImages.map((img, index) => (
+                    <motion.div
+                      key={index}
+                      initial={{ scale: 0.8, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.8, opacity: 0 }}
+                      className="relative group"
+                    >
+                      <div className="w-20 h-20 rounded-lg overflow-hidden border-2 border-[#ec4899] bg-[#0a0f1d]">
+                        <img 
+                          src={img} 
+                          alt={`Reference ${index + 1}`} 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <button
+                        onClick={() => removeReferenceImage(index)}
+                        className="absolute -top-2 -right-2 p-1.5 bg-red-500 hover:bg-red-600 rounded-full shadow-lg transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                      <div className="absolute bottom-1 left-1 right-1">
+                        <div className="px-1.5 py-0.5 bg-[#ec4899]/90 backdrop-blur-sm rounded text-[10px] text-white font-mono font-bold text-center">
+                          REF {index + 1}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                  
+                  {/* Add More Button */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-20 h-20 rounded-lg border-2 border-dashed border-[#ec4899]/50 hover:border-[#ec4899] bg-[#0a0f1d]/50 hover:bg-[#0a0f1d] transition-all flex flex-col items-center justify-center gap-1 group"
+                  >
+                    <Plus className="w-6 h-6 text-[#ec4899] group-hover:scale-110 transition-transform" />
+                    <span className="text-[10px] text-[#ec4899] font-mono font-bold">ADD</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Floating Bottom Bar */}
+              <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="px-3 py-1.5 bg-[#050810]/90 backdrop-blur-sm border border-[#161d2f] rounded-lg text-gray-500 font-mono text-xs">
+                    {prompt.length} characters
+                  </span>
+                  {referenceImages.length > 0 && (
+                    <span className="px-3 py-1.5 bg-[#ec4899]/10 backdrop-blur-sm border border-[#ec4899]/30 rounded-lg text-[#ec4899] font-mono text-xs font-bold">
+                      {referenceImages.length} {referenceImages.length === 1 ? 'Image' : 'Images'}
+                    </span>
+                  )}
+                  <button onClick={() => setShowSettingsModal(true)} className="px-4 py-1.5 bg-[#050810]/90 backdrop-blur-sm border border-[#161d2f] hover:border-[#f59e0b] rounded-lg text-gray-400 hover:text-white font-medium text-xs transition-all flex items-center gap-2">
+                    <Settings className="w-3.5 h-3.5" />
+                    Settings
+                  </button>
+                </div>
+
+                <motion.button
+                  onClick={addToQueue}
+                  disabled={!prompt.trim()}
+                  className="px-10 py-3 bg-gradient-to-r from-[#f59e0b] to-[#ec4899] hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed rounded-xl text-white font-bold text-sm shadow-xl shadow-orange-500/40 transition-all flex items-center gap-3"
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  <Sparkles className="w-5 h-5" />
+                  Add to Queue
+                </motion.button>
               </div>
-
-              <motion.button
-                onClick={addToQueue}
-                disabled={!prompt.trim()}
-                className="px-10 py-3 bg-gradient-to-r from-[#f59e0b] to-[#ec4899] hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed rounded-xl text-white font-bold text-sm shadow-xl shadow-orange-500/40 transition-all flex items-center gap-3"
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
-              >
-                <Sparkles className="w-5 h-5" />
-                Add to Queue
-              </motion.button>
             </div>
+
+            {/* Drag Overlay */}
+            {isDragging && (
+              <div className="absolute inset-0 bg-[#ec4899]/10 border-4 border-dashed border-[#ec4899] rounded-2xl flex items-center justify-center pointer-events-none">
+                <div className="bg-[#0a0f1d]/95 backdrop-blur-sm px-8 py-6 rounded-xl border-2 border-[#ec4899]">
+                  <Upload className="w-16 h-16 text-[#ec4899] mx-auto mb-3" />
+                  <p className="text-white font-bold text-lg text-center" style={{ fontFamily: 'Space Grotesk' }}>
+                    Drop Images Here
+                  </p>
+                  <p className="text-gray-400 text-sm text-center mt-1">
+                    Add reference images for image-to-image generation
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Hidden File Input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => handleFiles(e.target.files)}
+              className="hidden"
+            />
           </div>
 
           {/* Quick Options */}
-          <div className="mt-6 flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <span className="text-gray-500 text-sm font-medium">Model:</span>
-              <div className="flex gap-2">
-                {imageModels.map(m => (
-                  <button 
-                    key={m}
-                    onClick={() => setModel(m)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                      model === m
-                        ? "bg-[#f59e0b] text-white"
-                        : "bg-[#161d2f] text-gray-400 hover:text-white hover:bg-[#1a1f30]"
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
+          <div className="mt-6 bg-[#0a0f1d] border border-[#161d2f] rounded-xl p-6 hidden">
+            {/* Model & Ratio - Always Visible */}
+            <div className="flex items-center gap-6 mb-6">
+              <div className="flex items-center gap-3">
+                <span className="text-gray-500 text-sm font-medium">Model:</span>
+                <div className="flex gap-2">
+                  {["Imagen 3.5", "DALL-E 3", "Midjourney"].map(m => (
+                    <button 
+                      key={m}
+                      onClick={() => setModel(m)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        model === m
+                          ? "bg-[#f59e0b] text-white"
+                          : "bg-[#161d2f] text-gray-400 hover:text-white hover:bg-[#1a1f30]"
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="w-px h-6 bg-[#161d2f]" />
+
+              <div className="flex items-center gap-3">
+                <span className="text-gray-500 text-sm font-medium">Ratio:</span>
+                <div className="flex gap-2">
+                  {["1:1", "16:9", "9:16", "4:3"].map(r => (
+                    <button 
+                      key={r}
+                      onClick={() => setRatio(r)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        ratio === r
+                          ? "bg-[#f59e0b] text-white"
+                          : "bg-[#161d2f] text-gray-400 hover:text-white hover:bg-[#1a1f30]"
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="w-px h-6 bg-[#161d2f]" />
+            {/* Advanced Settings Toggle */}
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center gap-2 text-[#f59e0b] hover:text-[#ea580c] font-medium text-sm transition-all"
+            >
+              <Sparkles className="w-4 h-4" />
+              Advanced Settings
+            </button>
 
-            <div className="flex items-center gap-3">
-              <span className="text-gray-500 text-sm font-medium">Ratio:</span>
-              <div className="flex gap-2">
-                {["1:1", "16:9", "9:16"].map(r => (
-                  <button 
-                    key={r}
-                    onClick={() => setRatio(r)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                      ratio === r
-                        ? "bg-[#f59e0b] text-white"
-                        : "bg-[#161d2f] text-gray-400 hover:text-white hover:bg-[#1a1f30]"
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Advanced Settings Content */}
+            <AnimatePresence>
+              {showAdvanced && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="pt-6 space-y-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      {/* Resolution */}
+                      <div>
+                        <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                          Resolution
+                        </label>
+                        <select
+                          value={resolution}
+                          onChange={(e) => setResolution(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-[#161d2f] border border-[#1f2937] hover:border-[#374151] rounded-lg text-white text-sm font-mono outline-none transition-all cursor-pointer"
+                        >
+                          <option value="1K">1K</option>
+                          <option value="2K">2K</option>
+                          <option value="4K">4K</option>
+                          <option value="8K">8K</option>
+                        </select>
+                      </div>
+
+                      {/* Count */}
+                      <div>
+                        <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                          Count
+                        </label>
+                        <select
+                          value={count}
+                          onChange={(e) => setCount(parseInt(e.target.value))}
+                          className="w-full px-4 py-2.5 bg-[#161d2f] border border-[#1f2937] hover:border-[#374151] rounded-lg text-white text-sm font-mono outline-none transition-all cursor-pointer"
+                        >
+                          <option value="1">1</option>
+                          <option value="2">2</option>
+                          <option value="4">4</option>
+                          <option value="8">8</option>
+                          <option value="16">16</option>
+                          <option value="32">32</option>
+                          <option value="64">64</option>
+                          <option value="124">124</option>
+                        </select>
+                      </div>
+
+                      {/* Seed */}
+                      <div>
+                        <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                          Seed
+                        </label>
+                        <input
+                          type="text"
+                          value={seed}
+                          onChange={(e) => setSeed(e.target.value)}
+                          placeholder="Random"
+                          className="w-full px-4 py-2.5 bg-[#161d2f] border border-[#1f2937] hover:border-[#374151] focus:border-[#f59e0b] rounded-lg text-white text-sm font-mono placeholder:text-gray-600 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    {/* CSV Upload - Only show when queue has items */}
+                    {queue.length > 0 && (
+                      <div>
+                        <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                          CSV Prompt Mapping
+                        </label>
+                        <input
+                          ref={csvInputRef}
+                          type="file"
+                          accept=".csv"
+                          onChange={(e) => handleCsvUpload(e.target.files)}
+                          className="hidden"
+                        />
+                        <button
+                          onClick={() => csvInputRef.current?.click()}
+                          className={`w-full px-5 py-2.5 rounded-lg transition-all flex items-center justify-center gap-2.5 ${
+                            csvLoaded 
+                              ? 'bg-[#10b981]/10 border border-[#10b981]/30 text-emerald-400' 
+                              : 'bg-[#161d2f] hover:bg-[#1f2937] border border-[#1f2937] hover:border-[#374151] text-gray-300 hover:text-white'
+                          }`}
+                        >
+                          <FileText className="w-4 h-4" />
+                          <span className="text-sm font-medium">
+                            {csvLoaded ? `${Object.keys(promptMapping).length} Prompts Loaded` : 'Upload CSV'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Hidden File Input for drag & drop */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => handleFiles(e.target.files)}
+              className="hidden"
+            />
           </div>
         </div>
 
@@ -590,6 +895,163 @@ export function ImageStudio() {
                 </div>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettingsModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-8"
+            onClick={() => setShowSettingsModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="max-w-3xl w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Content */}
+              <div className="bg-[#0a0f1d] border border-[#161d2f] rounded-2xl p-8">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-white font-bold text-2xl" style={{ fontFamily: 'Space Grotesk' }}>
+                    Generation Settings
+                  </h2>
+                  <button
+                    onClick={() => setShowSettingsModal(false)}
+                    className="p-2 hover:bg-[#161d2f] rounded-lg transition-all"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                {/* Model Selection */}
+                <div className="mb-8">
+                  <label className="block text-gray-400 text-sm font-medium mb-3">
+                    Model:
+                  </label>
+                  <div className="flex gap-3">
+                    {["Imagen 3.5", "DALL-E 3", "Midjourney"].map(m => (
+                      <button 
+                        key={m}
+                        onClick={() => setModel(m)}
+                        className={`flex-1 px-6 py-3 rounded-lg text-sm font-semibold transition-all ${
+                          model === m
+                            ? "bg-[#f59e0b] text-white shadow-lg shadow-orange-500/30"
+                            : "bg-[#161d2f] text-gray-400 hover:text-white hover:bg-[#1a1f30]"
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Ratio Selection */}
+                <div className="mb-8">
+                  <label className="block text-gray-400 text-sm font-medium mb-3">
+                    Ratio:
+                  </label>
+                  <div className="flex gap-3">
+                    {["1:1", "16:9", "9:16", "4:3"].map(r => (
+                      <button 
+                        key={r}
+                        onClick={() => setRatio(r)}
+                        className={`flex-1 px-6 py-3 rounded-lg text-sm font-semibold transition-all ${
+                          ratio === r
+                            ? "bg-[#f59e0b] text-white shadow-lg shadow-orange-500/30"
+                            : "bg-[#161d2f] text-gray-400 hover:text-white hover:bg-[#1a1f30]"
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-[#161d2f] my-8" />
+
+                {/* Advanced Settings Header */}
+                <div className="flex items-center gap-2 mb-6">
+                  <Sparkles className="w-5 h-5 text-[#f59e0b]" />
+                  <h3 className="text-[#f59e0b] font-bold text-lg" style={{ fontFamily: 'Space Grotesk' }}>
+                    Advanced Settings
+                  </h3>
+                </div>
+
+                {/* Advanced Settings Grid */}
+                <div className="grid grid-cols-3 gap-6">
+                  {/* Resolution */}
+                  <div>
+                    <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-3">
+                      Resolution
+                    </label>
+                    <select
+                      value={resolution}
+                      onChange={(e) => setResolution(e.target.value)}
+                      className="w-full px-4 py-3 bg-[#161d2f] border border-[#1f2937] hover:border-[#f59e0b] focus:border-[#f59e0b] rounded-lg text-white text-sm font-mono outline-none transition-all cursor-pointer"
+                    >
+                      <option value="1K">1K</option>
+                      <option value="2K">2K</option>
+                      <option value="4K">4K</option>
+                      <option value="8K">8K</option>
+                    </select>
+                  </div>
+
+                  {/* Count */}
+                  <div>
+                    <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-3">
+                      Count
+                    </label>
+                    <select
+                      value={count}
+                      onChange={(e) => setCount(parseInt(e.target.value))}
+                      className="w-full px-4 py-3 bg-[#161d2f] border border-[#1f2937] hover:border-[#f59e0b] focus:border-[#f59e0b] rounded-lg text-white text-sm font-mono outline-none transition-all cursor-pointer"
+                    >
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="4">4</option>
+                      <option value="8">8</option>
+                      <option value="16">16</option>
+                      <option value="32">32</option>
+                      <option value="64">64</option>
+                      <option value="124">124</option>
+                    </select>
+                  </div>
+
+                  {/* Seed */}
+                  <div>
+                    <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-3">
+                      Seed
+                    </label>
+                    <input
+                      type="text"
+                      value={seed}
+                      onChange={(e) => setSeed(e.target.value)}
+                      placeholder="Random"
+                      className="w-full px-4 py-3 bg-[#161d2f] border border-[#1f2937] hover:border-[#f59e0b] focus:border-[#f59e0b] rounded-lg text-white text-sm font-mono placeholder:text-gray-600 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Close Button */}
+                <div className="mt-8 flex justify-end">
+                  <button
+                    onClick={() => setShowSettingsModal(false)}
+                    className="px-8 py-3 bg-gradient-to-r from-[#f59e0b] to-[#ec4899] hover:opacity-90 rounded-xl text-white font-bold text-sm shadow-lg shadow-orange-500/30 transition-all"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

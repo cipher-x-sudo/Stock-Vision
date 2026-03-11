@@ -8,7 +8,6 @@ import { registerStats } from './stats.js';
 import { registerQueue } from './queue.js';
 import { registerLogs } from './logs.js';
 import { registerFailed } from './failed.js';
-import { registerMidjourney } from './midjourney.js';
 import { registerDownload } from './download.js';
 import { registerTracking } from './tracking.js';
 
@@ -23,7 +22,6 @@ export function registerRoutes(app) {
   registerQueue(app);
   registerLogs(app);
   registerFailed(app);
-  registerMidjourney(app);
   registerDownload(app);
   registerTracking(app);
 }

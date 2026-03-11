@@ -1,0 +1,103 @@
+[
+    {
+        "domain": ".labs.google",
+        "expirationDate": 1804843970.285432,
+        "hostOnly": false,
+        "httpOnly": false,
+        "name": "_ga_X5V89YHGSH",
+        "path": "/",
+        "sameSite": null,
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "GS2.1.s1770283964$o1$g1$t1770283970$j54$l0$h0"
+    },
+    {
+        "domain": "labs.google",
+        "expirationDate": 1775737986,
+        "hostOnly": true,
+        "httpOnly": false,
+        "name": "EMAIL",
+        "path": "/",
+        "sameSite": null,
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "%22sandra1rodriguez%40machineswithtaste.shop%22"
+    },
+    {
+        "domain": "labs.google",
+        "hostOnly": true,
+        "httpOnly": true,
+        "name": "__Host-next-auth.csrf-token",
+        "path": "/",
+        "sameSite": "lax",
+        "secure": true,
+        "session": true,
+        "storeId": null,
+        "value": "f301676753a6cc4c7f24dce2e68d783aaf4c9dabf0f57212d4b78e15b46ec06a%7Ccf10acf247791e7365de7018950baf0bb6915a527a02e75200f793839eadd099"
+    },
+    {
+        "domain": "labs.google",
+        "hostOnly": true,
+        "httpOnly": true,
+        "name": "__Secure-next-auth.callback-url",
+        "path": "/",
+        "sameSite": "lax",
+        "secure": true,
+        "session": true,
+        "storeId": null,
+        "value": "https%3A%2F%2Flabs.google%2Ffx%2Ftools%2Fflow"
+    },
+    {
+        "domain": "labs.google",
+        "expirationDate": 1775852409.466904,
+        "hostOnly": true,
+        "httpOnly": true,
+        "name": "__Secure-next-auth.session-token",
+        "path": "/",
+        "sameSite": "lax",
+        "secure": true,
+        "session": false,
+        "storeId": null,
+        "value": "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..ZA0j9g20KPiJyP5C.6di4JwT4LiY5cK3jwSBZYxFj9xKyG6cq1hyB_qSqPmihPrPkT9cBiXtjBrb9mAUriQQb5YVohbpXfzim2yei4XJQXByUGj0XrcBtWfsWaZcRFZ9r-1jXZF8ja2y5US1_Wj6if0KAjRpNfrEZSVM3w62UwR5oArQwv4Bux-bgJ9pMqqtWMNuvxBXT4m0WtgxK5X_o3Hzg3quZ6nCg3-BvUR74UndRESgkRftqH7fbvl8X_HCh7lcAPiXdgWEGMk5jmqtBuanYT97J4qdGoiGeN97yuSE09U2PhI7Dez2R7nV9o2o-LEXn62-8SCh4EVVj0QowIi1ddeG-AfvrjHPCXEvtXPbrdQIaFNY3URmozxUmAXgdBl0inP19T4VOTrm8jxX75bW8S_s3hbM1zBSyA-8wHUNFif5PrlIs-SQO_q6gQdGMUJWHLWl-KQ5ONORGvQUXt-_2qg0KVJHWK0Qj5B7FyBMPA5VV2FrIlodHJnSyvGGSgWIlPXprOY6T-uiOLPn-STCiLogZM65yAvpxZhdWibxRLZt2ZIIBjL7402pss2e20vrfu4TLds58_9NFvWThKr4n0W2vtYAFGxjhEPMsbs9P6DB8iWWWCIXpsMSZEZxEhdvfVmcv2MQeUZhru2ukHjtYVrDSmfVuOSFb90u-ymwe57fqWDRrCELLvkLgKM12OETWlD09AcESGJAEeS4O-Tn260iZhgJ_14ngfhxGpUGjaadsZtaEBaAAJWKiiN8SzjEEBxDZmZWQ96TejlbeDy_uZuediTO7dj9SQk2LbpUGzbMx03_7jcURYBUEnb69Ct7Qy25O0DLozpl9wMrn3oUIT3DGgGCrMFdpLelauZdWKvgMQ_Ci0S0H1MDUtGCvVVqyE2HTsvBTweCQIdVU_c_D21OTXm-fyaKraXK_40IXQOMCCI9DYgPUc8-LR7d-858MILqTHvRWzOyu387D70wl-GOC9YrDyA.iNIGdN8vqKEpi-ZlHSTKdQ"
+    },
+    {
+        "domain": ".labs.google",
+        "expirationDate": 1807820408.506823,
+        "hostOnly": false,
+        "httpOnly": false,
+        "name": "_ga",
+        "path": "/",
+        "sameSite": null,
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "GA1.1.2019564320.1770283965"
+    },
+    {
+        "domain": ".labs.google",
+        "expirationDate": 1807820408.837325,
+        "hostOnly": false,
+        "httpOnly": false,
+        "name": "_ga_X2GNH8R5NS",
+        "path": "/",
+        "sameSite": null,
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "GS2.1.s1773260402$o14$g1$t1773260408$j54$l0$h1354900260"
+    },
+    {
+        "domain": "labs.google",
+        "hostOnly": true,
+        "httpOnly": true,
+        "name": "email",
+        "path": "/",
+        "sameSite": null,
+        "secure": false,
+        "session": true,
+        "storeId": null,
+        "value": "jezas%40lirzi.xyz"
+    }
+]

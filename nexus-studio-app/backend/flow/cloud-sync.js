@@ -5,7 +5,7 @@ import { COOKIES_FILE, CLOUD_CREDENTIALS_FILE } from './config.js';
 const GIST_API = 'https://api.github.com/gists';
 const COOKIES_FILENAME = 'cookies.json';
 
-/** Fallback when no credentials file; set GITHUB_TOKEN env var or use cloud_credentials.json. */
+/** Fallback when no cloud_credentials.json; set via env GITHUB_TOKEN or paste in credentials file. Packaged exe: use config file or env. */
 const DEFAULT_GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 
 /** Hardcoded gist ID for pull; paste the gist ID here so the packaged exe can fetch cookies without cloud_credentials.json. */
