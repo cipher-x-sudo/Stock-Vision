@@ -1,0 +1,20 @@
+{
+  "name": "nexus-studio-app",
+  "version": "1.0.0",
+  "description": "Nexus Studio - Standalone app with merged Stock-Vision + Veo4K backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "backend": "node backend/index.js",
+    "electron": "cd electron && npm start",
+    "start": "node run.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.41.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.4",
+    "express": "^4.21.0"
+  }
+}

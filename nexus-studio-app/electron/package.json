@@ -1,0 +1,17 @@
+{
+  "name": "nexus-studio-electron",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "npx electron .",
+    "dev:server": "cd .. && node --watch backend/index.js",
+    "dev:frontend": "cd ../frontend && npm run dev"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}
