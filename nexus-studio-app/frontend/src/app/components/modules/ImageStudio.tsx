@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Sparkles, Image as ImageIcon, Loader2, CheckCircle, 
-  Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Plus, PlayCircle, Copy, Upload, FileText
+  Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Plus, PlayCircle, Copy, Upload, FileText, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { api } from "../../../services/api";
 
@@ -14,6 +14,7 @@ interface QueueItem {
   status: "pending" | "rendering" | "success" | "failed" | "queued";
   progress?: number;
   imageUrl?: string;
+  imageUrls?: string[];
   timestamp: Date;
   referenceImages?: string[];
 }
@@ -46,6 +47,11 @@ export function ImageStudio() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [imageModels, setImageModels] = useState<string[]>(DEFAULT_IMAGE_MODELS);
   const [imageAspects, setImageAspects] = useState<string[]>(DEFAULT_ASPECTS);
+  const [modalImageIndex, setModalImageIndex] = useState(0);
+
+  useEffect(() => {
+    if (selectedItem) setModalImageIndex(0);
+  }, [selectedItem?.id]);
 
   useEffect(() => {
     api.flowConfig().then((config) => {
@@ -176,7 +182,7 @@ export function ImageStudio() {
         mode: "image",
         model,
         aspect: ratio,
-        count: 1,
+        count,
         res: resolution,
       };
       if (item.referenceImages?.length) {
@@ -184,21 +190,23 @@ export function ImageStudio() {
         if (item.referenceImages.length > 1) body.image_bytes_array = item.referenceImages;
       }
       const { jobId } = await api.flowGenerate(body);
-      const poll = async (): Promise<string | undefined> => {
+      const poll = async (): Promise<{ imageUrl?: string; imageUrls?: string[] }> => {
         const status = await api.flowGenerateStatus(jobId);
         setQueue(prev => prev.map(i => 
           i.id === id ? { ...i, progress: status.progress ?? i.progress ?? 0 } : i
         ));
         if (status.status === "done" && status.result?.images?.length) {
-          return status.result.images[0]?.url;
+          const imageUrls = status.result.images.map((img: { url?: string }) => img?.url ?? "").filter(Boolean);
+          const imageUrl = imageUrls[0];
+          return { imageUrl, imageUrls };
         }
         if (status.status === "error") throw new Error(status.error ?? "Generation failed");
         await new Promise((r) => setTimeout(r, 1500));
         return poll();
       };
-      const imageUrl = await poll();
+      const { imageUrl, imageUrls } = await poll();
       setQueue(prev => prev.map(i => 
-        i.id === id ? { ...i, status: "success" as const, progress: 100, imageUrl } : i
+        i.id === id ? { ...i, status: "success" as const, progress: 100, imageUrl, imageUrls } : i
       ));
     } catch (err) {
       const fallbackUrl = `https://picsum.photos/seed/${id}/800/800`;
@@ -224,6 +232,7 @@ export function ImageStudio() {
       status: "pending",
       progress: 0,
       imageUrl: undefined,
+      imageUrls: undefined,
       timestamp: new Date(),
     };
     setQueue([newItem, ...queue]);
@@ -884,7 +893,11 @@ export function ImageStudio() {
 
       {/* Fullscreen Image Modal */}
       <AnimatePresence>
-        {selectedItem && (
+        {selectedItem && (selectedItem.imageUrl || (selectedItem.imageUrls?.length ?? 0) > 0) && (() => {
+          const allUrls = selectedItem.imageUrls ?? (selectedItem.imageUrl ? [selectedItem.imageUrl] : []);
+          const currentUrl = allUrls[modalImageIndex] ?? allUrls[0];
+          const n = allUrls.length;
+          return (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -926,9 +939,31 @@ export function ImageStudio() {
               <div className="flex gap-6 p-6">
                 {/* Image Preview - Left Side */}
                 <div className="flex-1">
-                  <div className="aspect-square rounded-xl overflow-hidden bg-[#050810] border border-[#161d2f]">
+                  <div className="aspect-square rounded-xl overflow-hidden bg-[#050810] border border-[#161d2f] relative">
+                    {n > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setModalImageIndex((i) => Math.max(0, i - 1)); }}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white"
+                        >
+                          <ChevronLeft className="w-5 h-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setModalImageIndex((i) => Math.min(n - 1, i + 1)); }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white"
+                        >
+                          <ChevronRight className="w-5 h-5" />
+                        </button>
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-black/60 text-white text-xs font-mono">
+                          Image {modalImageIndex + 1} of {n}
+                        </div>
+                      </>
+                    )}
                     <img
-                      src={selectedItem.imageUrl}
+                      key={currentUrl}
+                      src={currentUrl}
                       alt={selectedItem.prompt}
                       className="w-full h-full object-cover"
                     />
@@ -1024,7 +1059,7 @@ export function ImageStudio() {
                     </button>
                     <div className="flex gap-3">
                       <a
-                        href={selectedItem.imageUrl}
+                        href={currentUrl}
                         download
                         className="flex-1 px-6 py-3 bg-[#10b981] hover:bg-[#059669] rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2"
                       >
@@ -1047,7 +1082,8 @@ export function ImageStudio() {
               </div>
             </motion.div>
           </motion.div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       {/* Settings Modal */}

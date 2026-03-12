@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Sparkles, Film, Loader2, CheckCircle, 
-  Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Volume2, VolumeX, Plus, PlayCircle, Copy, Upload, Image as ImageIcon
+  Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Volume2, VolumeX, Plus, PlayCircle, Copy, Upload, Image as ImageIcon, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { api } from "../../../services/api";
 
@@ -14,6 +14,7 @@ interface QueueItem {
   status: "pending" | "rendering" | "success" | "failed";
   progress?: number;
   videoUrl?: string;
+  videoUrls?: string[];
   thumbnailUrl?: string;
   timestamp: Date;
   mode?: "text-to-video" | "ingredients" | "frames" | "nano-video";
@@ -45,6 +46,11 @@ export function VideoStudio() {
   const [ingredientImages, setIngredientImages] = useState<string[]>([]);
   const [videoModels, setVideoModels] = useState<string[]>(DEFAULT_VIDEO_MODELS);
   const [videoAspects, setVideoAspects] = useState<string[]>(DEFAULT_VIDEO_ASPECTS);
+  const [modalVideoIndex, setModalVideoIndex] = useState(0);
+
+  useEffect(() => {
+    if (selectedItem) setModalVideoIndex(0);
+  }, [selectedItem?.id]);
 
   useEffect(() => {
     api.flowConfig().then((config) => {
@@ -124,33 +130,41 @@ export function VideoStudio() {
       i.id === id ? { ...i, status: "rendering" as const, progress: 0 } : i
     ));
     try {
-      const body: { prompt: string; mode: "video"; model?: string; aspect?: string; res?: string; image_bytes?: string; start_image_media_id?: string; reference_image_media_ids?: string[] } = {
+      const body: { prompt: string; mode: "video"; model?: string; aspect?: string; count?: number; res?: string; image_bytes?: string; start_image_media_id?: string; reference_image_media_ids?: string[] } = {
         prompt: item.prompt,
         mode: "video",
         model,
         aspect: ratio,
+        count,
         res: resolution,
       };
       if (item.startFrameUrl) body.image_bytes = item.startFrameUrl;
       const { jobId } = await api.flowGenerate(body);
-      const poll = async (): Promise<{ videoUrl?: string; thumbnailUrl?: string }> => {
+      const poll = async (): Promise<{ videoUrl?: string; videoUrls?: string[]; thumbnailUrl?: string }> => {
         const status = await api.flowGenerateStatus(jobId);
         setQueue(prev => prev.map(i => 
           i.id === id ? { ...i, progress: status.progress ?? i.progress ?? 0 } : i
         ));
         if (status.status === "done" && status.result) {
           const r = status.result as { videos?: Array<{ url?: string; video_url?: string; fifeUrl?: string }>; video?: { url?: string; fifeUrl?: string } };
-          const videoUrl = r.videos?.[0]?.url ?? r.videos?.[0]?.fifeUrl ?? r.videos?.[0]?.video_url ?? r.video?.url ?? r.video?.fifeUrl;
           const thumbnailUrl = `https://picsum.photos/seed/${id}/800/450`;
-          return { videoUrl, thumbnailUrl };
+          let videoUrls: string[] = [];
+          if (r.videos?.length) {
+            videoUrls = r.videos.map((v) => v?.url ?? v?.fifeUrl ?? v?.video_url ?? "").filter(Boolean);
+          } else if (r.video) {
+            const u = r.video?.url ?? r.video?.fifeUrl;
+            if (u) videoUrls = [u];
+          }
+          const videoUrl = videoUrls[0];
+          return { videoUrl, videoUrls, thumbnailUrl };
         }
         if (status.status === "error") throw new Error(status.error ?? "Video generation failed");
         await new Promise((r) => setTimeout(r, 2000));
         return poll();
       };
-      const { videoUrl, thumbnailUrl } = await poll();
+      const { videoUrl, videoUrls, thumbnailUrl } = await poll();
       setQueue(prev => prev.map(i => 
-        i.id === id ? { ...i, status: "success" as const, progress: 100, videoUrl, thumbnailUrl } : i
+        i.id === id ? { ...i, status: "success" as const, progress: 100, videoUrl, videoUrls, thumbnailUrl } : i
       ));
     } catch (_) {
       setQueue(prev => prev.map(i => 
@@ -181,6 +195,7 @@ export function VideoStudio() {
       status: "pending",
       progress: 0,
       videoUrl: undefined,
+      videoUrls: undefined,
       thumbnailUrl: undefined,
       timestamp: new Date(),
     };
@@ -694,7 +709,11 @@ export function VideoStudio() {
 
       {/* Fullscreen Video Player Modal */}
       <AnimatePresence>
-        {selectedItem && selectedItem.videoUrl && (
+        {selectedItem && (selectedItem.videoUrl || (selectedItem.videoUrls?.length ?? 0) > 0) && (() => {
+          const allUrls = selectedItem.videoUrls ?? (selectedItem.videoUrl ? [selectedItem.videoUrl] : []);
+          const currentUrl = allUrls[modalVideoIndex] ?? allUrls[0];
+          const n = allUrls.length;
+          return (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -747,9 +766,31 @@ export function VideoStudio() {
               <div className="flex gap-6 p-6">
                 {/* Video Player - Left Side */}
                 <div className="flex-1">
-                  <div className="aspect-video rounded-xl overflow-hidden bg-[#050810] border border-[#161d2f]">
+                  <div className="aspect-video rounded-xl overflow-hidden bg-[#050810] border border-[#161d2f] relative">
+                    {n > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setModalVideoIndex((i) => Math.max(0, i - 1)); }}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white"
+                        >
+                          <ChevronLeft className="w-5 h-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setModalVideoIndex((i) => Math.min(n - 1, i + 1)); }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white"
+                        >
+                          <ChevronRight className="w-5 h-5" />
+                        </button>
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-black/60 text-white text-xs font-mono">
+                          Video {modalVideoIndex + 1} of {n}
+                        </div>
+                      </>
+                    )}
                     <video
-                      src={selectedItem.videoUrl}
+                      key={currentUrl}
+                      src={currentUrl}
                       className="w-full h-full object-cover"
                       controls
                       autoPlay
@@ -893,7 +934,7 @@ export function VideoStudio() {
                     </button>
                     <div className="flex gap-3">
                       <a
-                        href={selectedItem.videoUrl}
+                        href={currentUrl}
                         download
                         className="flex-1 px-6 py-3 bg-[#10b981] hover:bg-[#059669] rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2"
                       >
@@ -916,7 +957,8 @@ export function VideoStudio() {
               </div>
             </motion.div>
           </motion.div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       {/* Settings Modal */}
