@@ -1,7 +1,8 @@
 import { X, Server, Key, Upload } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as Switch from "@radix-ui/react-switch";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { api } from "../../services/api";
 
 interface SettingsModalProps {
   open: boolean;
@@ -11,6 +12,18 @@ interface SettingsModalProps {
 export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<"engine" | "keys">("engine");
   const [autoRouting, setAutoRouting] = useState(true);
+  const [backendOk, setBackendOk] = useState<boolean | null>(null);
+  const [flowAuth, setFlowAuth] = useState<{ ready: boolean; projectId: string | null; hasToken: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    api.health()
+      .then((res) => setBackendOk(res?.ok ?? false))
+      .catch(() => setBackendOk(false));
+    api.flowAuthStatus()
+      .then((res) => setFlowAuth({ ready: res.ready, projectId: res.projectId ?? null, hasToken: res.hasToken ?? false }))
+      .catch(() => setFlowAuth(null));
+  }, [open]);
 
   return (
     <AnimatePresence>
@@ -82,6 +95,25 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 <div className="flex-1 overflow-y-auto p-6">
                   {activeTab === "engine" && (
                     <div className="space-y-6">
+                      {/* Backend & Flow status */}
+                      <div className="flex flex-wrap gap-4">
+                        <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${backendOk === true ? "bg-[#10b981]/10 border border-[#10b981]/30" : backendOk === false ? "bg-red-500/10 border border-red-500/30" : "bg-[#161d2f]/50 border border-[#161d2f]"}`}>
+                          <div className={`w-2.5 h-2.5 rounded-full ${backendOk === true ? "bg-[#10b981]" : backendOk === false ? "bg-red-500" : "bg-gray-500 animate-pulse"}`} />
+                          <span className={backendOk === true ? "text-[#10b981]" : backendOk === false ? "text-red-400" : "text-gray-400"} style={{ fontSize: "0.875rem" }}>
+                            {backendOk === true ? "Backend connected" : backendOk === false ? "Backend offline" : "Checking…"}
+                          </span>
+                        </div>
+                        {flowAuth !== null && (
+                          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${flowAuth.ready ? "bg-[#10b981]/10 border border-[#10b981]/30" : "bg-[#f59e0b]/10 border border-[#f59e0b]/30"}`}>
+                            <div className={`w-2.5 h-2.5 rounded-full ${flowAuth.ready ? "bg-[#10b981]" : "bg-[#f59e0b]"}`} />
+                            <span className={flowAuth.ready ? "text-[#10b981]" : "text-[#f59e0b]"} style={{ fontSize: "0.875rem" }}>
+                              Flow: {flowAuth.ready ? (flowAuth.projectId ? `Project ${flowAuth.projectId.slice(0, 8)}…` : "Ready") : "Not ready"}
+                              {flowAuth.hasToken && " • Token"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Primary Engine */}
                       <div className="bg-[#161d2f]/50 rounded-xl p-6 border border-[#0ea5e9]/20">
                         <div className="flex items-start gap-4 mb-4">
@@ -109,10 +141,10 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-3 px-4 py-3 bg-[#10b981]/10 border border-[#10b981]/30 rounded-lg">
-                            <div className="w-3 h-3 rounded-full bg-[#10b981] animate-pulse" />
-                            <span className="text-[#10b981] font-medium" style={{ fontSize: '0.875rem' }}>
-                              SYSTEM BOUND. AUTHENTICATED.
+                          <div className={`flex items-center gap-3 px-4 py-3 rounded-lg ${backendOk === true ? "bg-[#10b981]/10 border border-[#10b981]/30" : "bg-[#161d2f]/50 border border-[#161d2f]"}`}>
+                            <div className={`w-3 h-3 rounded-full ${backendOk === true ? "bg-[#10b981] animate-pulse" : "bg-gray-500"}`} />
+                            <span className={backendOk === true ? "text-[#10b981] font-medium" : "text-gray-400"} style={{ fontSize: '0.875rem' }}>
+                              {backendOk === true ? "Backend connected" : backendOk === false ? "Backend offline" : "Checking backend…"}
                             </span>
                           </div>
                         </div>

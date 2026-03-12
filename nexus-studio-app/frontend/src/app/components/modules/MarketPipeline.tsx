@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, Zap, ChevronDown, Download, Sparkles, Image as ImageIcon, Video, Shapes, Pen, Layers, Filter, X, Brain, Dna } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -8,128 +8,50 @@ import Masonry from "react-responsive-masonry";
 import { PromptTable } from "../PromptTable";
 import { useMediaViewer } from "../../contexts/MediaViewerContext";
 import { MediaItem } from "../MediaViewer";
+import { api, mapApiPromptsToRows, type TrackAdobeImage, type AnalysisResult, type PromptRow } from "../../../services/api";
 
-const upcomingEvents = [
-  { id: 1, icon: "🎄", title: "Christmas", daysUntil: 289 },
-  { id: 2, icon: "🎃", title: "Halloween", daysUntil: 234 },
-  { id: 3, icon: "💝", title: "Valentine's Day", daysUntil: 340 },
-  { id: 4, icon: "🎆", title: "New Year", daysUntil: 296 },
-  { id: 5, icon: "🦃", title: "Thanksgiving", daysUntil: 258 },
-  { id: 6, icon: "🎓", title: "Graduation Season", daysUntil: 92 },
-];
+const EVENT_ICONS: Record<string, string> = {
+  "Christmas": "🎄",
+  "Halloween": "🎃",
+  "Valentine's Day": "💝",
+  "New Year": "🎆",
+  "Thanksgiving": "🦃",
+  "Graduation": "🎓",
+  "default": "📅",
+};
 
-const mockTrendData = [
-  { month: "Apr", volume: 2400, id: "trend-apr" },
-  { month: "May", volume: 1398, id: "trend-may" },
-  { month: "Jun", volume: 9800, id: "trend-jun" },
-  { month: "Jul", volume: 3908, id: "trend-jul" },
-  { month: "Aug", volume: 4800, id: "trend-aug" },
-  { month: "Sep", volume: 3800, id: "trend-sep" },
-  { month: "Oct", volume: 4300, id: "trend-oct" },
-];
+function trackAdobeToMediaItem(img: TrackAdobeImage): MediaItem {
+  const downloads = typeof img.downloads === "string" ? parseInt(img.downloads, 10) : (img.downloads ?? 0);
+  return {
+    id: img.id,
+    title: img.title ?? "",
+    downloads: Number.isFinite(downloads) ? downloads : 0,
+    premium: img.premium ?? "Standard",
+    creator: img.creator ?? "",
+    creatorId: img.creatorId ?? "",
+    mediaType: img.mediaType ?? "Photo",
+    category: img.category ?? "",
+    contentType: img.contentType ?? "image/jpeg",
+    dimensions: img.dimensions ?? "0 x 0",
+    uploadDate: img.uploadDate ?? new Date().toISOString(),
+    keywords: Array.isArray(img.keywords) ? img.keywords : [],
+    thumbnailUrl: img.thumbnailUrl ?? "",
+    isAI: !!img.isAI,
+  };
+}
 
-const mockTopSellers = [
-  "Cinematic ocean sunset with dramatic clouds",
-  "Minimalist product photography on marble",
-  "Neon cyberpunk cityscape at night",
-  "Macro photography of water droplets",
-  "Abstract geometric patterns in pastel colors",
-];
-
-const mockImages = [
-  { id: 1, downloads: 12500 },
-  { id: 2, downloads: 8900 },
-  { id: 3, downloads: 15200 },
-  { id: 4, downloads: 6700 },
-  { id: 5, downloads: 21300 },
-  { id: 6, downloads: 9400 },
-  { id: 7, downloads: 11800 },
-  { id: 8, downloads: 7200 },
-];
-
-// Mock evidence data with real API structure
-const mockEvidence: MediaItem[] = [
-  {
-    id: "1933626801",
-    title: "World sleep day illustration with crescent moon and zzz, night sky and trees",
-    downloads: 8600,
-    premium: "Standard",
-    creator: "SHALENA",
-    creatorId: "212733487",
-    mediaType: "Illustration",
-    category: "Culture and Religion",
-    contentType: "image/jpeg",
-    dimensions: "5632 x 3072",
-    uploadDate: "2026-03-03 04:24:49.373885",
-    keywords: ["world", "sleep", "day", "illustration", "with", "crescent", "moon", "and", "zzz", "night", "sky", "trees"],
-    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
-    isAI: true
-  },
-  {
-    id: "1933626802",
-    title: "World sleep day banner with clock and text",
-    downloads: 4200,
-    premium: "Standard",
-    creator: "CreativeAI",
-    creatorId: "212733488",
-    mediaType: "Illustration",
-    category: "Culture and Religion",
-    contentType: "image/jpeg",
-    dimensions: "5120 x 2880",
-    uploadDate: "2026-03-03 05:10:22.373885",
-    keywords: ["world", "sleep", "day", "clock", "alarm"],
-    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
-    isAI: false
-  },
-  {
-    id: "1933626803",
-    title: "Sleeping crescent moon in night sky with stars",
-    downloads: 12100,
-    premium: "Premium",
-    creator: "DreamDesigns",
-    creatorId: "212733489",
-    mediaType: "Photo",
-    category: "Nature",
-    contentType: "image/jpeg",
-    dimensions: "6000 x 4000",
-    uploadDate: "2026-03-02 18:30:15.373885",
-    keywords: ["sleep", "moon", "night", "stars"],
-    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
-    isAI: false
-  },
-  {
-    id: "1933626804",
-    title: "Cartoon illustration world sleep day celebration",
-    downloads: 9300,
-    premium: "Standard",
-    creator: "VectorArt",
-    creatorId: "212733490",
-    mediaType: "Vector",
-    category: "Culture and Religion",
-    contentType: "image/svg",
-    dimensions: "4096 x 4096",
-    uploadDate: "2026-03-01 12:45:00.373885",
-    keywords: ["world", "sleep", "day", "cartoon", "celebration"],
-    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
-    isAI: true
-  },
-  {
-    id: "1933626805",
-    title: "Alarm clock on bedside table vintage style",
-    downloads: 15800,
-    premium: "Premium",
-    creator: "RetroPhotos",
-    creatorId: "212733491",
-    mediaType: "Photo",
-    category: "Lifestyle",
-    contentType: "image/jpeg",
-    dimensions: "5472 x 3648",
-    uploadDate: "2026-02-28 09:22:33.373885",
-    keywords: ["alarm", "clock", "sleep", "bedroom", "vintage"],
-    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
-    isAI: false
-  },
-];
+function daysUntil(dateStr: string): number {
+  try {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return 0;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return Math.max(0, Math.ceil((d.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
+  } catch {
+    return 0;
+  }
+}
 
 export function MarketPipeline() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -140,8 +62,14 @@ export function MarketPipeline() {
   const [minDemand, setMinDemand] = useState([500]);
   const [scanProgress, setScanProgress] = useState(0);
   const { openMedia } = useMediaViewer();
+
+  const [upcomingEvents, setUpcomingEvents] = useState<Array<{ id: number; icon: string; title: string; daysUntil: number }>>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [evidence, setEvidence] = useState<MediaItem[]>([]);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [promptRows, setPromptRows] = useState<PromptRow[]>([]);
+  const [apiError, setApiError] = useState<string | null>(null);
   
-  // Loading states for different actions
   const [isExpandingPrompts, setIsExpandingPrompts] = useState(false);
   const [promptProgress, setPromptProgress] = useState(0);
   const [isConceptualizing, setIsConceptualizing] = useState(false);
@@ -149,12 +77,10 @@ export function MarketPipeline() {
   const [isExtractingDNA, setIsExtractingDNA] = useState(false);
   const [dnaProgress, setDNAProgress] = useState(0);
   
-  // Evidence filters
   const [filterMediaType, setFilterMediaType] = useState<string>("all");
   const [filterAIOnly, setFilterAIOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   
-  // Scan configuration state
   const [sortOrder, setSortOrder] = useState<"relevance" | "most-downloads" | "newest" | "featured">("relevance");
   const [assetType, setAssetType] = useState<"all" | "photo" | "video" | "vector" | "illustration">("all");
   const [pagesFrom, setPagesFrom] = useState(1);
@@ -164,64 +90,100 @@ export function MarketPipeline() {
   const [yearTo, setYearTo] = useState("");
   const [aiGeneratedOnly, setAiGeneratedOnly] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    setEventsLoading(true);
+    setApiError(null);
+    api.suggestedEvents()
+      .then((res) => {
+        if (cancelled) return;
+        const list = (res.events ?? []).map((e, i) => ({
+          id: i + 1,
+          icon: EVENT_ICONS[e.name?.split(" ")[0] ?? ""] ?? EVENT_ICONS[e.category ?? ""] ?? e.icon ?? EVENT_ICONS.default,
+          title: e.name ?? "",
+          daysUntil: daysUntil(e.date ?? ""),
+        }));
+        setUpcomingEvents(list);
+      })
+      .catch((err) => {
+        if (!cancelled) setApiError(err instanceof Error ? err.message : "Failed to load events");
+        setUpcomingEvents([]);
+      })
+      .finally(() => { if (!cancelled) setEventsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleEventClick = (title: string) => {
     setSearchQuery(title);
   };
 
-  const handleDeepScan = () => {
+  const handleDeepScan = async () => {
+    if (!searchQuery.trim()) {
+      setApiError("Enter a search query or select an event.");
+      return;
+    }
     setIsScanning(true);
     setShowBrief(false);
     setShowPrompts(false);
-    setScanProgress(0);
-    
-    // Simulate progress
-    const interval = setInterval(() => {
-      setScanProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return prev + 2;
+    setAnalysisResult(null);
+    setEvidence([]);
+    setApiError(null);
+    setScanProgress(10);
+    const orderMap = { relevance: "relevance", "most-downloads": "most-downloads", newest: "newest", featured: "featured" };
+    const contentMap = { all: undefined, photo: "photo", video: "video", vector: "vector", illustration: "illustration" };
+    try {
+      setScanProgress(30);
+      const trackRes = await api.trackAdobe({
+        q: searchQuery,
+        page: pagesFrom,
+        endPage: pagesTo,
+        ai_only: aiGeneratedOnly,
+        order: orderMap[sortOrder],
+        content_type: contentMap[assetType],
       });
-    }, 50);
-    
-    setTimeout(() => {
-      clearInterval(interval);
-      setIsScanning(false);
+      const images = trackRes.images ?? [];
+      setScanProgress(60);
+      const analysis = await api.analyzeMarket({ eventName: searchQuery, rawData: images });
+      setAnalysisResult(analysis);
+      setEvidence(images.map(trackAdobeToMediaItem));
+      setScanProgress(100);
       setShowBrief(true);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Scan failed");
+    } finally {
+      setIsScanning(false);
       setScanProgress(0);
-    }, 2500);
+    }
   };
 
-  const handleExpandPrompts = () => {
+  const handleExpandPrompts = async () => {
+    if (!analysisResult?.brief) {
+      setApiError("Run a Deep Scan first to get a brief.");
+      return;
+    }
     setIsExpandingPrompts(true);
-    setPromptProgress(0);
-    
-    // Simulate progress
-    const interval = setInterval(() => {
-      setPromptProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return prev + 2;
-      });
-    }, 50);
-    
-    setTimeout(() => {
-      clearInterval(interval);
-      setIsExpandingPrompts(false);
+    setPromptProgress(10);
+    setApiError(null);
+    try {
+      setPromptProgress(40);
+      const res = await api.generatePrompts({ eventName: searchQuery, brief: analysisResult.brief });
+      setPromptProgress(80);
+      setPromptRows(mapApiPromptsToRows(res.prompts ?? []));
       setShowPrompts(true);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Failed to generate prompts");
+    } finally {
+      setIsExpandingPrompts(false);
       setPromptProgress(0);
-    }, 2500);
+    }
   };
 
-  const prompts = Array.from({ length: 100 }, (_, i) => ({
-    id: i + 1,
-    scene: `Cinematic scene ${i + 1} with dramatic composition`,
-    style: i % 3 === 0 ? "Photorealistic" : i % 3 === 1 ? "Artistic" : "Hyperreal",
-    lighting: i % 4 === 0 ? "Golden hour" : i % 4 === 1 ? "Studio" : i % 4 === 2 ? "Natural" : "Dramatic",
+  const trendData = (analysisResult?.trends ?? []).map((t, i) => ({
+    month: t.month,
+    volume: t.demand,
+    id: `trend-${i}`,
   }));
+  const topSellers: string[] = analysisResult?.brief?.bestSellers ?? (analysisResult?.brief?.shotList?.map((s) => s.idea) ?? []) ?? [];
 
   return (
     <div className="min-h-screen bg-[#050810] p-8">
@@ -241,8 +203,18 @@ export function MarketPipeline() {
           <h2 className="text-white font-semibold mb-4" style={{ fontSize: '1.25rem', fontFamily: 'Space Grotesk' }}>
             90-Day Horizon Calendar
           </h2>
+          {apiError && (
+            <div className="mb-4 px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+              {apiError}
+            </div>
+          )}
           <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-[#161d2f] scrollbar-track-transparent">
-            {upcomingEvents.map((event) => (
+            {eventsLoading ? (
+              <div className="text-gray-500 py-4">Loading events...</div>
+            ) : upcomingEvents.length === 0 ? (
+              <div className="text-gray-500 py-4">No upcoming events. Run the backend and try again.</div>
+            ) : (
+            upcomingEvents.map((event) => (
               <motion.button
                 key={event.id}
                 onClick={() => handleEventClick(event.title)}
@@ -260,7 +232,8 @@ export function MarketPipeline() {
                   </div>
                 </div>
               </motion.button>
-            ))}
+            ))
+            )}
           </div>
         </div>
 
@@ -566,7 +539,7 @@ export function MarketPipeline() {
                 </AnimatePresence>
 
                 <Masonry columnsCount={4} gutter="16px">
-                  {mockEvidence
+                  {evidence
                     .filter(item => filterMediaType === "all" || item.mediaType === filterMediaType)
                     .filter(item => !filterAIOnly || item.isAI)
                     .map((media, index) => (
@@ -692,7 +665,7 @@ export function MarketPipeline() {
                     Trend Volume
                   </h2>
                   <ResponsiveContainer width="100%" height={200}>
-                    <LineChart data={mockTrendData}>
+                    <LineChart data={trendData.length ? trendData : [{ month: "-", volume: 0, id: "empty" }]}>
                       <XAxis dataKey="month" stroke="#6b7280" />
                       <YAxis stroke="#6b7280" />
                       <Tooltip
@@ -718,7 +691,7 @@ export function MarketPipeline() {
                     Top Sellers
                   </h2>
                   <ol className="space-y-3">
-                    {mockTopSellers.map((seller, index) => (
+                    {topSellers.map((seller, index) => (
                       <li key={`seller-${index}`} className="flex gap-3">
                         <span className="text-[#0ea5e9] font-mono font-bold">
                           {String(index + 1).padStart(2, "0")}
@@ -761,7 +734,7 @@ export function MarketPipeline() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                 >
-                  <PromptTable prompts={prompts} />
+                  <PromptTable prompts={promptRows} />
                 </motion.div>
               )}
             </motion.div>

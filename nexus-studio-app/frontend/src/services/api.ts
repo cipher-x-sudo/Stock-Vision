@@ -38,6 +38,19 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(url(path), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as { message?: string; error?: string }).message ?? (err as { error?: string }).error ?? "Request failed");
+  }
+  return res.json();
+}
+
 // ── Types (align with backend) ─────────────────────────────────
 export interface SuggestedEvent {
   name: string;
@@ -259,6 +272,21 @@ export const api = {
     return get<{ ok: boolean }>("/api/health");
   },
 
+  /** GET /api/favorites/contributors */
+  async getFavoriteContributors(): Promise<{ contributors: Array<{ id: string; [key: string]: unknown }> }> {
+    return get("/api/favorites/contributors");
+  },
+
+  /** POST /api/favorites/contributors — toggle favorite (body = creator with id). */
+  async toggleFavoriteContributor(creator: { id: string; [key: string]: unknown }): Promise<{ success: boolean; action: string; contributors: unknown[] }> {
+    return post("/api/favorites/contributors", creator);
+  },
+
+  /** POST /api/generate-keywords — event keywords for stock search. */
+  async generateKeywords(body: { eventName: string }): Promise<{ keywords: string[] }> {
+    return post<{ keywords: string[] }>("/api/generate-keywords", body);
+  },
+
   // ── Veo4K Flow (image/video generation) ───────────────────────────────────
 
   /** GET /api/flow/config — model lists and defaults (matches backend flow config). */
@@ -280,6 +308,11 @@ export const api = {
         },
       };
     }
+  },
+
+  /** PATCH /api/flow/config — update output dir, auto-download, etc. */
+  async flowConfigUpdate(data: Partial<Pick<FlowConfig, "outputDir" | "autoDownload" | "autoDownloadUpscaledOnly" | "cloudPullOnStartup" | "autoDownloadPrefix" | "autoDownloadSuffix" | "maxConcurrentUpscales" | "upscaleStartDelayMs">>): Promise<FlowConfig> {
+    return patch<FlowConfig>("/api/flow/config", data);
   },
 
   /** GET /api/flow/history — Flow-generated items (merged with Flow project workflows). */

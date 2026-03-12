@@ -1,16 +1,17 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Sparkles, Image as ImageIcon, Loader2, CheckCircle, 
   Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Plus, PlayCircle, Copy, Upload, FileText
 } from "lucide-react";
+import { api } from "../../../services/api";
 
 interface QueueItem {
   id: number;
   prompt: string;
   model: string;
   ratio: string;
-  status: "pending" | "rendering" | "success" | "failed";
+  status: "pending" | "rendering" | "success" | "failed" | "queued";
   progress?: number;
   imageUrl?: string;
   timestamp: Date;
@@ -21,10 +22,13 @@ interface PromptMapping {
   [filename: string]: string;
 }
 
+const DEFAULT_IMAGE_MODELS = ["Imagen 4", "Nano Banana", "Nano Banana Pro"];
+const DEFAULT_ASPECTS = ["16:9 Landscape", "9:16 Portrait", "1:1 Square"];
+
 export function ImageStudio() {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("Imagen 3.5");
-  const [ratio, setRatio] = useState("1:1");
+  const [model, setModel] = useState("Nano Banana Pro");
+  const [ratio, setRatio] = useState("16:9 Landscape");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedItem, setSelectedItem] = useState<QueueItem | null>(null);
@@ -40,6 +44,18 @@ export function ImageStudio() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [imageModels, setImageModels] = useState<string[]>(DEFAULT_IMAGE_MODELS);
+  const [imageAspects, setImageAspects] = useState<string[]>(DEFAULT_ASPECTS);
+
+  useEffect(() => {
+    api.flowConfig().then((config) => {
+      if (config.imageModels?.length) setImageModels(config.imageModels);
+      if (config.imageAspects?.length) setImageAspects(config.imageAspects);
+      if (config.defaults?.imageModel) setModel(config.defaults.imageModel);
+      if (config.defaults?.imageAspect) setRatio(config.defaults.imageAspect);
+      if (config.defaults?.imageCount != null) setCount(config.defaults.imageCount);
+    }).catch(() => {});
+  }, []);
 
   const addToQueue = () => {
     if (!prompt.trim()) return;
@@ -148,36 +164,48 @@ export function ImageStudio() {
     setReferenceImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const generateItem = (id: number) => {
-    setQueue(prev => prev.map(item => 
-      item.id === id ? { ...item, status: "rendering" as const, progress: 0 } : item
+  const generateItem = async (id: number) => {
+    const item = queue.find((i) => i.id === id);
+    if (!item || item.status !== "pending") return;
+    setQueue(prev => prev.map(i => 
+      i.id === id ? { ...i, status: "rendering" as const, progress: 0 } : i
     ));
-    
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += Math.random() * 15;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
-        
-        const mockImageUrl = `https://picsum.photos/seed/${id}/800/800`;
-        
-        setTimeout(() => {
-          setQueue(prev => prev.map(item => 
-            item.id === id ? { 
-              ...item, 
-              status: "success" as const, 
-              progress: 100,
-              imageUrl: mockImageUrl 
-            } : item
-          ));
-        }, 500);
-      } else {
-        setQueue(prev => prev.map(item => 
-          item.id === id ? { ...item, progress } : item
-        ));
+    try {
+      const body: { prompt: string; mode: "image"; model?: string; aspect?: string; count?: number; res?: string; image_bytes?: string; image_bytes_array?: string[] } = {
+        prompt: item.prompt,
+        mode: "image",
+        model,
+        aspect: ratio,
+        count: 1,
+        res: resolution,
+      };
+      if (item.referenceImages?.length) {
+        body.image_bytes = item.referenceImages[0];
+        if (item.referenceImages.length > 1) body.image_bytes_array = item.referenceImages;
       }
-    }, 400);
+      const { jobId } = await api.flowGenerate(body);
+      const poll = async (): Promise<string | undefined> => {
+        const status = await api.flowGenerateStatus(jobId);
+        setQueue(prev => prev.map(i => 
+          i.id === id ? { ...i, progress: status.progress ?? i.progress ?? 0 } : i
+        ));
+        if (status.status === "done" && status.result?.images?.length) {
+          return status.result.images[0]?.url;
+        }
+        if (status.status === "error") throw new Error(status.error ?? "Generation failed");
+        await new Promise((r) => setTimeout(r, 1500));
+        return poll();
+      };
+      const imageUrl = await poll();
+      setQueue(prev => prev.map(i => 
+        i.id === id ? { ...i, status: "success" as const, progress: 100, imageUrl } : i
+      ));
+    } catch (err) {
+      const fallbackUrl = `https://picsum.photos/seed/${id}/800/800`;
+      setQueue(prev => prev.map(i => 
+        i.id === id ? { ...i, status: "failed" as const, progress: 100, imageUrl: fallbackUrl } : i
+      ));
+    }
   };
 
   const generateAll = () => {
@@ -451,7 +479,7 @@ export function ImageStudio() {
               <div className="flex items-center gap-3">
                 <span className="text-gray-500 text-sm font-medium">Model:</span>
                 <div className="flex gap-2">
-                  {["Imagen 3.5", "DALL-E 3", "Midjourney"].map(m => (
+                  {imageModels.map(m => (
                     <button 
                       key={m}
                       onClick={() => setModel(m)}
@@ -472,7 +500,7 @@ export function ImageStudio() {
               <div className="flex items-center gap-3">
                 <span className="text-gray-500 text-sm font-medium">Ratio:</span>
                 <div className="flex gap-2">
-                  {["1:1", "16:9", "9:16", "4:3"].map(r => (
+                  {imageAspects.map(r => (
                     <button 
                       key={r}
                       onClick={() => setRatio(r)}
@@ -1059,12 +1087,12 @@ export function ImageStudio() {
                   <label className="block text-gray-400 text-sm font-medium mb-3">
                     Model:
                   </label>
-                  <div className="flex gap-3">
-                    {["Imagen 3.5", "DALL-E 3", "Midjourney"].map(m => (
+                  <div className="flex flex-wrap gap-3">
+                    {imageModels.map(m => (
                       <button 
                         key={m}
                         onClick={() => setModel(m)}
-                        className={`flex-1 px-6 py-3 rounded-lg text-sm font-semibold transition-all ${
+                        className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all ${
                           model === m
                             ? "bg-[#f59e0b] text-white shadow-lg shadow-orange-500/30"
                             : "bg-[#161d2f] text-gray-400 hover:text-white hover:bg-[#1a1f30]"
@@ -1081,12 +1109,12 @@ export function ImageStudio() {
                   <label className="block text-gray-400 text-sm font-medium mb-3">
                     Ratio:
                   </label>
-                  <div className="flex gap-3">
-                    {["1:1", "16:9", "9:16", "4:3"].map(r => (
+                  <div className="flex flex-wrap gap-3">
+                    {imageAspects.map(r => (
                       <button 
                         key={r}
                         onClick={() => setRatio(r)}
-                        className={`flex-1 px-6 py-3 rounded-lg text-sm font-semibold transition-all ${
+                        className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all ${
                           ratio === r
                             ? "bg-[#f59e0b] text-white shadow-lg shadow-orange-500/30"
                             : "bg-[#161d2f] text-gray-400 hover:text-white hover:bg-[#1a1f30]"

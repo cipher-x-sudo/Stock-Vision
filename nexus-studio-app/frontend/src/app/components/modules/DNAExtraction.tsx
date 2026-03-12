@@ -7,6 +7,7 @@ import {
   Settings, ArrowRight, Crown, Video, MonitorPlay
 } from "lucide-react";
 import { CloneSettingsPanel } from "./CloneSettingsPanel";
+import { api } from "../../../services/api";
 
 interface CSVAsset {
   id: string;
@@ -138,93 +139,118 @@ export function DNAExtraction() {
         s.id === sessionId ? { ...s, currentStep: 1 } : s
       ));
     } else if (nextStep === 2) {
-      // Step 2: Generate Image
+      // Step 2: Generate Image — cloning prompts from asset, then optional image gen
       setSessions(prev => prev.map(s => 
         s.id === sessionId ? { ...s, currentStep: 2, analyzing: true, progress: 0 } : s
       ));
 
-      // Simulate analyzing
-      let progress = 0;
-      const analyzeInterval = setInterval(() => {
-        progress += Math.random() * 20;
-        if (progress >= 100) {
-          progress = 100;
-          clearInterval(analyzeInterval);
-          
-          setTimeout(() => {
-            setSessions(prev => prev.map(s => 
-              s.id === sessionId ? { ...s, analyzing: false, cloning: true, progress: 0 } : s
-            ));
+      (async () => {
+        try {
+          const { asset } = session;
+          const imageUrl = asset.thumbnailUrl?.startsWith("data:") ? asset.thumbnailUrl : asset.thumbnailUrl;
+          const res = await api.generateCloningPrompts({
+            images: [{ url: imageUrl ?? "", title: asset.title, id: asset.id }],
+          });
+          const prompts = res.prompts ?? [];
+          const imagePromptStr = prompts.length > 0 ? JSON.stringify(prompts, null, 2) : "{}";
 
-            // Simulate cloning
-            let cloneProgress = 0;
-            const cloneInterval = setInterval(() => {
-              cloneProgress += Math.random() * 15;
-              if (cloneProgress >= 100) {
-                cloneProgress = 100;
-                clearInterval(cloneInterval);
-                
-                setTimeout(() => {
-                  const mockImagePrompt = {
-                    "model": imageModel,
-                    "prompt": "A cinematic composition featuring professional business elements with natural lighting",
-                    "negative_prompt": "blurry, watermark, low quality",
-                    "aspect_ratio": aspectRatio,
-                    "resolution": imageResolution,
-                    "style_reference": "stock asset DNA",
-                    "keywords_extracted": ["professional", "business", "modern", "clean"]
-                  };
-
-                  setSessions(prev => prev.map(s => 
-                    s.id === sessionId ? { 
-                      ...s, 
-                      cloning: false,
-                      progress: 100,
-                      clonedImageUrl: `https://picsum.photos/seed/${sessionId}/800/450`,
-                      imagePrompt: JSON.stringify(mockImagePrompt, null, 2)
-                    } : s
-                  ));
-                }, 300);
-              } else {
-                setSessions(prev => prev.map(s => 
-                  s.id === sessionId ? { ...s, progress: cloneProgress } : s
-                ));
-              }
-            }, 400);
-          }, 500);
-        } else {
           setSessions(prev => prev.map(s => 
-            s.id === sessionId ? { ...s, progress } : s
+            s.id === sessionId ? { ...s, analyzing: false, cloning: true, progress: 30 } : s
+          ));
+
+          let clonedImageUrl: string | undefined;
+          if (prompts.length > 0 && prompts[0].scene) {
+            try {
+              const imgRes = await api.generateImage({
+                scene: prompts[0].scene,
+                style: prompts[0].style,
+                lighting: prompts[0].lighting ? { primary: prompts[0].lighting.primary } : undefined,
+                shot: prompts[0].shot,
+                aspectRatio: aspectRatio,
+                imageSize: imageResolution,
+              });
+              clonedImageUrl = imgRes.url ?? (imgRes.image ? `data:image/png;base64,${imgRes.image}` : undefined);
+            } catch (_) {
+              clonedImageUrl = `https://picsum.photos/seed/${sessionId}/800/450`;
+            }
+          } else {
+            clonedImageUrl = `https://picsum.photos/seed/${sessionId}/800/450`;
+          }
+
+          setSessions(prev => prev.map(s => 
+            s.id === sessionId ? { 
+              ...s, 
+              cloning: false,
+              progress: 100,
+              clonedImageUrl,
+              imagePrompt: imagePromptStr,
+            } : s
+          ));
+        } catch (_) {
+          const fallback = JSON.stringify({ model: imageModel, prompt: "Cloning prompt request failed.", keywords_extracted: [] }, null, 2);
+          setSessions(prev => prev.map(s => 
+            s.id === sessionId ? { 
+              ...s, 
+              analyzing: false,
+              cloning: false,
+              progress: 100,
+              clonedImageUrl: `https://picsum.photos/seed/${sessionId}/800/450`,
+              imagePrompt: fallback,
+            } : s
           ));
         }
-      }, 300);
+      })();
     } else if (nextStep === 3) {
-      // Step 3: Generate Video
+      // Step 3: Generate Video — video plan from cloned image + prompt
       setSessions(prev => prev.map(s => 
         s.id === sessionId ? { ...s, currentStep: 3 } : s
       ));
 
-      // Simulate video generation
-      setTimeout(() => {
-        const mockVideoPrompt = {
-          "model": videoModel,
-          "director_mode": "cinematic pan",
-          "camera_motion": cameraMotion,
-          "duration": videoDuration,
-          "aspect_ratio": aspectRatio,
-          "resolution": videoResolution,
-          "based_on": "cloned image analysis"
-        };
-
-        setSessions(prev => prev.map(s => 
-          s.id === sessionId ? { 
-            ...s, 
-            currentStep: 4,
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            videoPrompt: JSON.stringify(mockVideoPrompt, null, 2)
-          } : s
-        ));
-      }, 2000);
+      (async () => {
+        const currentSession = sessions.find(s => s.id === sessionId);
+        if (!currentSession) return;
+        let imageForPlan = currentSession.clonedImageUrl ?? currentSession.asset.thumbnailUrl ?? "";
+        const promptForPlan = currentSession.imagePrompt ?? "";
+        if (imageForPlan.startsWith("http") && !imageForPlan.startsWith("/")) {
+          try {
+            const r = await fetch(imageForPlan);
+            const blob = await r.blob();
+            imageForPlan = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+          } catch {
+            // keep original URL
+          }
+        }
+        try {
+          const planRes = await api.generateVideoPlan({
+            image: imageForPlan,
+            prompt: promptForPlan.slice(0, 2000),
+          });
+          const planStr = JSON.stringify(planRes.plan ?? {}, null, 2);
+          setSessions(prev => prev.map(s => 
+            s.id === sessionId ? { 
+              ...s, 
+              currentStep: 4,
+              videoPrompt: planStr,
+              videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            } : s
+          ));
+        } catch (_) {
+          const fallback = JSON.stringify({ model: videoModel, director_mode: cameraMotion, based_on: "cloned image" }, null, 2);
+          setSessions(prev => prev.map(s => 
+            s.id === sessionId ? { 
+              ...s, 
+              currentStep: 4,
+              videoPrompt: fallback,
+              videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            } : s
+          ));
+        }
+      })();
     }
   };
 

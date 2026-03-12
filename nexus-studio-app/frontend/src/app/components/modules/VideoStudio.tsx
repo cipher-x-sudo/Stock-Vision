@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Sparkles, Film, Loader2, CheckCircle, 
   Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Volume2, VolumeX, Plus, PlayCircle, Copy, Upload, Image as ImageIcon
 } from "lucide-react";
+import { api } from "../../../services/api";
 
 interface QueueItem {
   id: number;
@@ -21,10 +22,13 @@ interface QueueItem {
   ingredientImages?: string[];
 }
 
+const DEFAULT_VIDEO_MODELS = ["Veo 3.1 - Fast (Audio)", "Veo 3.1 - Fast", "Veo 3.1 - Quality"];
+const DEFAULT_VIDEO_ASPECTS = ["16:9 Landscape", "9:16 Portrait", "1:1 Square"];
+
 export function VideoStudio() {
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("Veo 3.1");
-  const [ratio, setRatio] = useState("16:9");
+  const [model, setModel] = useState("Veo 3.1 - Fast (Audio)");
+  const [ratio, setRatio] = useState("16:9 Landscape");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedItem, setSelectedItem] = useState<QueueItem | null>(null);
@@ -39,6 +43,17 @@ export function VideoStudio() {
   const [startFrameUrl, setStartFrameUrl] = useState<string>("");
   const [endFrameUrl, setEndFrameUrl] = useState<string>("");
   const [ingredientImages, setIngredientImages] = useState<string[]>([]);
+  const [videoModels, setVideoModels] = useState<string[]>(DEFAULT_VIDEO_MODELS);
+  const [videoAspects, setVideoAspects] = useState<string[]>(DEFAULT_VIDEO_ASPECTS);
+
+  useEffect(() => {
+    api.flowConfig().then((config) => {
+      if (config.videoModels?.length) setVideoModels(config.videoModels);
+      if (config.videoAspects?.length) setVideoAspects(config.videoAspects);
+      if (config.defaults?.videoModel) setModel(config.defaults.videoModel);
+      if (config.defaults?.videoAspect) setRatio(config.defaults.videoAspect);
+    }).catch(() => {});
+  }, []);
 
   const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -102,38 +117,52 @@ export function VideoStudio() {
     setPrompt("");
   };
 
-  const generateItem = (id: number) => {
-    setQueue(prev => prev.map(item => 
-      item.id === id ? { ...item, status: "rendering" as const, progress: 0 } : item
+  const generateItem = async (id: number) => {
+    const item = queue.find((i) => i.id === id);
+    if (!item || item.status !== "pending") return;
+    setQueue(prev => prev.map(i => 
+      i.id === id ? { ...i, status: "rendering" as const, progress: 0 } : i
     ));
-    
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += Math.random() * 10;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
-        
-        const mockVideoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
-        const mockThumbnail = `https://picsum.photos/seed/${id}/800/450`;
-        
-        setTimeout(() => {
-          setQueue(prev => prev.map(item => 
-            item.id === id ? { 
-              ...item, 
-              status: "success" as const, 
-              progress: 100,
-              videoUrl: mockVideoUrl,
-              thumbnailUrl: mockThumbnail
-            } : item
-          ));
-        }, 500);
-      } else {
-        setQueue(prev => prev.map(item => 
-          item.id === id ? { ...item, progress } : item
+    try {
+      const body: { prompt: string; mode: "video"; model?: string; aspect?: string; res?: string; image_bytes?: string; start_image_media_id?: string; reference_image_media_ids?: string[] } = {
+        prompt: item.prompt,
+        mode: "video",
+        model,
+        aspect: ratio,
+        res: resolution,
+      };
+      if (item.startFrameUrl) body.image_bytes = item.startFrameUrl;
+      const { jobId } = await api.flowGenerate(body);
+      const poll = async (): Promise<{ videoUrl?: string; thumbnailUrl?: string }> => {
+        const status = await api.flowGenerateStatus(jobId);
+        setQueue(prev => prev.map(i => 
+          i.id === id ? { ...i, progress: status.progress ?? i.progress ?? 0 } : i
         ));
-      }
-    }, 600);
+        if (status.status === "done" && status.result) {
+          const r = status.result as { videos?: Array<{ url?: string; video_url?: string; fifeUrl?: string }>; video?: { url?: string; fifeUrl?: string } };
+          const videoUrl = r.videos?.[0]?.url ?? r.videos?.[0]?.fifeUrl ?? r.videos?.[0]?.video_url ?? r.video?.url ?? r.video?.fifeUrl;
+          const thumbnailUrl = `https://picsum.photos/seed/${id}/800/450`;
+          return { videoUrl, thumbnailUrl };
+        }
+        if (status.status === "error") throw new Error(status.error ?? "Video generation failed");
+        await new Promise((r) => setTimeout(r, 2000));
+        return poll();
+      };
+      const { videoUrl, thumbnailUrl } = await poll();
+      setQueue(prev => prev.map(i => 
+        i.id === id ? { ...i, status: "success" as const, progress: 100, videoUrl, thumbnailUrl } : i
+      ));
+    } catch (_) {
+      setQueue(prev => prev.map(i => 
+        i.id === id ? { 
+          ...i, 
+          status: "failed" as const, 
+          progress: 100,
+          videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+          thumbnailUrl: `https://picsum.photos/seed/${id}/800/450`,
+        } : i
+      ));
+    }
   };
 
   const generateAll = () => {
@@ -358,7 +387,7 @@ export function VideoStudio() {
             <div className="flex items-center gap-3">
               <span className="text-gray-500 text-sm font-medium">Model:</span>
               <div className="flex gap-2">
-                {["Veo 3.1", "Veo 3.0", "Runway Gen-3"].map(m => (
+                {videoModels.map(m => (
                   <button 
                     key={m}
                     onClick={() => setModel(m)}
@@ -379,7 +408,7 @@ export function VideoStudio() {
             <div className="flex items-center gap-3">
               <span className="text-gray-500 text-sm font-medium">Ratio:</span>
               <div className="flex gap-2">
-                {["16:9", "9:16", "21:9", "1:1"].map(r => (
+                {videoAspects.map(r => (
                   <button 
                     key={r}
                     onClick={() => setRatio(r)}
@@ -954,9 +983,9 @@ export function VideoStudio() {
                     onChange={(e) => setModel(e.target.value)}
                     className="w-full px-4 py-3 bg-[#161d2f] border border-[#1f2937] hover:border-[#8b5cf6] focus:border-[#8b5cf6] rounded-lg text-white text-sm outline-none transition-all cursor-pointer"
                   >
-                    <option value="Veo 3.1">Veo 3.1 - Fast (Audio)</option>
-                    <option value="Veo 3.0">Veo 3.0 - Standard</option>
-                    <option value="Runway Gen-3">Runway Gen-3 - Alpha</option>
+                    {videoModels.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -966,7 +995,7 @@ export function VideoStudio() {
                     Aspect Ratio
                   </label>
                   <div className="grid grid-cols-4 gap-3">
-                    {["16:9", "9:16", "1:1", "21:9"].map(r => (
+                    {videoAspects.map(r => (
                       <button 
                         key={r}
                         onClick={() => setRatio(r)}
