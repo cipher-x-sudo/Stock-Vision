@@ -1,11 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import {
-  Sparkles, Image as ImageIcon, Loader2, CheckCircle,
+import { 
+  Sparkles, Image as ImageIcon, Loader2, CheckCircle, 
   Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Plus, PlayCircle, Copy, Upload, FileText
 } from "lucide-react";
-import { api, STORAGE_BASE } from "../../../services/api";
-import { MediaInspectorModal } from "../MediaInspectorModal";
 
 interface QueueItem {
   id: number;
@@ -23,20 +21,10 @@ interface PromptMapping {
   [filename: string]: string;
 }
 
-function aspectShort(full: string): string {
-  const m = full.match(/^(\d+:\d+)/);
-  return m ? m[1] : full;
-}
-
-const POLL_INTERVAL_MS = 2000;
-
 export function ImageStudio() {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("Imagen 3.5");
   const [ratio, setRatio] = useState("1:1");
-  const [imageModels, setImageModels] = useState<string[]>([]);
-  const [imageAspects, setImageAspects] = useState<string[]>([]);
-  const [configLoaded, setConfigLoaded] = useState(false);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedItem, setSelectedItem] = useState<QueueItem | null>(null);
@@ -52,21 +40,6 @@ export function ImageStudio() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-
-  useEffect(() => {
-    api.flowConfig().then((c) => {
-      setImageModels(c.imageModels?.length ? c.imageModels : ["Imagen 3.5", "DALL-E 3", "Midjourney"]);
-      setImageAspects(c.imageAspects?.length ? c.imageAspects : ["1:1", "16:9", "9:16", "4:3"]);
-      setModel(c.defaults?.imageModel ?? "Imagen 3.5");
-      const defaultAspect = c.defaults?.imageAspect ?? "1:1";
-      setRatio(defaultAspect);
-      setConfigLoaded(true);
-    }).catch(() => {
-      setImageModels(["Imagen 3.5", "DALL-E 3", "Midjourney"]);
-      setImageAspects(["1:1", "16:9", "9:16", "4:3"]);
-      setConfigLoaded(true);
-    });
-  }, []);
 
   const addToQueue = () => {
     if (!prompt.trim()) return;
@@ -175,55 +148,36 @@ export function ImageStudio() {
     setReferenceImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  function resolveImageUrl(url: string | undefined): string | undefined {
-    if (!url) return undefined;
-    if (url.startsWith("http")) return url;
-    if (url.startsWith("/")) return `${window.location.origin}${url}`;
-    const base = STORAGE_BASE.replace(/\/$/, "");
-    return `${base}/${url}`;
-  }
-
-  const generateItem = async (id: number) => {
-    const item = queue.find((i) => i.id === id);
-    if (!item || item.status !== "pending") return;
-
-    setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "rendering" as const, progress: 0 } : i));
-
-    try {
-      const body = {
-        prompt: item.prompt,
-        mode: "image" as const,
-        model: item.model,
-        aspect: item.ratio,
-        count: count || 1,
-      };
-      if (item.referenceImages?.length) {
-        const base64 = item.referenceImages[0];
-        if (typeof base64 === "string" && base64.startsWith("data:")) {
-          body.image_bytes = base64.split(",")[1];
-        }
+  const generateItem = (id: number) => {
+    setQueue(prev => prev.map(item => 
+      item.id === id ? { ...item, status: "rendering" as const, progress: 0 } : item
+    ));
+    
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 15;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        
+        const mockImageUrl = `https://picsum.photos/seed/${id}/800/800`;
+        
+        setTimeout(() => {
+          setQueue(prev => prev.map(item => 
+            item.id === id ? { 
+              ...item, 
+              status: "success" as const, 
+              progress: 100,
+              imageUrl: mockImageUrl 
+            } : item
+          ));
+        }, 500);
+      } else {
+        setQueue(prev => prev.map(item => 
+          item.id === id ? { ...item, progress } : item
+        ));
       }
-      if (seed.trim()) body.seed = parseInt(seed, 10);
-
-      const { jobId } = await api.flowGenerate(body);
-
-      const poll = async (): Promise<void> => {
-        const res = await api.flowGenerateStatus(jobId);
-        if (res.status === "done" && res.result?.images?.length) {
-          const url = res.result.images[0]?.url;
-          setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "success" as const, progress: 100, imageUrl: resolveImageUrl(url) } : i));
-          return;
-        }
-        if (res.status === "error") {
-          setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "failed" as const } : i));
-          return;
-        }
-        setTimeout(poll, POLL_INTERVAL_MS);
-      };
-      await poll();
-    } catch {
-      setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "failed" as const } : i));
-    }
+    }, 400);
   };
 
   const generateAll = () => {
@@ -497,7 +451,7 @@ export function ImageStudio() {
               <div className="flex items-center gap-3">
                 <span className="text-gray-500 text-sm font-medium">Model:</span>
                 <div className="flex gap-2">
-                  {(imageModels.length ? imageModels : ["Imagen 3.5", "DALL-E 3", "Midjourney"]).map(m => (
+                  {["Imagen 3.5", "DALL-E 3", "Midjourney"].map(m => (
                     <button 
                       key={m}
                       onClick={() => setModel(m)}
@@ -518,7 +472,7 @@ export function ImageStudio() {
               <div className="flex items-center gap-3">
                 <span className="text-gray-500 text-sm font-medium">Ratio:</span>
                 <div className="flex gap-2">
-                  {(imageAspects.length ? imageAspects : ["1:1", "16:9", "9:16", "4:3"]).map(r => (
+                  {["1:1", "16:9", "9:16", "4:3"].map(r => (
                     <button 
                       key={r}
                       onClick={() => setRatio(r)}
@@ -738,25 +692,32 @@ export function ImageStudio() {
                               <img 
                                 src={item.imageUrl} 
                                 alt={item.prompt}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover cursor-pointer"
+                                onClick={() => setSelectedItem(item)}
                               />
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100">
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100 pointer-events-none">
                                 <button 
-                                  onClick={() => setSelectedItem(item)}
-                                  className="p-3 bg-[#f59e0b] hover:bg-[#ea580c] rounded-lg transition-all"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedItem(item);
+                                  }}
+                                  className="p-3 bg-[#f59e0b] hover:bg-[#ea580c] rounded-lg transition-all pointer-events-auto"
                                 >
                                   <ExternalLink className="w-5 h-5 text-white" />
                                 </button>
                                 <a 
                                   href={item.imageUrl}
                                   download
-                                  className="p-3 bg-[#10b981] hover:bg-[#059669] rounded-lg transition-all"
+                                  className="p-3 bg-[#10b981] hover:bg-[#059669] rounded-lg transition-all pointer-events-auto"
                                 >
                                   <Download className="w-5 h-5 text-white" />
                                 </a>
                                 <button 
-                                  onClick={() => removeItem(item.id)}
-                                  className="p-3 bg-red-500 hover:bg-red-600 rounded-lg transition-all"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeItem(item.id);
+                                  }}
+                                  className="p-3 bg-red-500 hover:bg-red-600 rounded-lg transition-all pointer-events-auto"
                                 >
                                   <Trash2 className="w-5 h-5 text-white" />
                                 </button>
@@ -893,27 +854,173 @@ export function ImageStudio() {
         )}
       </div>
 
-      {selectedItem && selectedItem.imageUrl && (
-        <MediaInspectorModal
-          open={true}
-          onClose={() => setSelectedItem(null)}
-          type="image"
-          mediaUrl={selectedItem.imageUrl}
-          title="Image"
-          subtitle={`${selectedItem.model} • ${selectedItem.ratio}`}
-          resolution="720P"
-          aspectRatio={selectedItem.ratio}
-          format="PNG"
-          visionPrompt={selectedItem.prompt}
-          onDownload={() => {
-            const a = document.createElement("a");
-            a.href = selectedItem.imageUrl!;
-            a.download = `image-${selectedItem.id}.png`;
-            a.rel = "noopener";
-            a.click();
-          }}
-        />
-      )}
+      {/* Fullscreen Image Modal */}
+      <AnimatePresence>
+        {selectedItem && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/90 backdrop-blur-xl z-50 flex items-center justify-center p-8"
+            onClick={() => setSelectedItem(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="max-w-6xl w-full bg-[#0a0f1d] border border-[#161d2f] rounded-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-[#161d2f]">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#f59e0b] to-[#ec4899] flex items-center justify-center">
+                    <ImageIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-white font-bold text-lg" style={{ fontFamily: 'Space Grotesk' }}>
+                      Generation Details
+                    </h2>
+                    <p className="text-gray-500 text-xs font-mono">
+                      {selectedItem.timestamp.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  className="p-2 hover:bg-[#161d2f] rounded-lg text-gray-400 hover:text-white transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex gap-6 p-6">
+                {/* Image Preview - Left Side */}
+                <div className="flex-1">
+                  <div className="aspect-square rounded-xl overflow-hidden bg-[#050810] border border-[#161d2f]">
+                    <img
+                      src={selectedItem.imageUrl}
+                      alt={selectedItem.prompt}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+
+                {/* Details Panel - Right Side */}
+                <div className="w-[400px] flex flex-col">
+                  {/* Prompt */}
+                  <div className="mb-6">
+                    <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                      Prompt
+                    </label>
+                    <div className="p-4 bg-[#050810] border border-[#161d2f] rounded-lg">
+                      <p className="text-white font-mono text-sm leading-relaxed">
+                        {selectedItem.prompt}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Generation Settings */}
+                  <div className="space-y-4 mb-6">
+                    {/* Model */}
+                    <div>
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Model
+                      </label>
+                      <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                        <p className="text-white font-mono text-sm">{selectedItem.model}</p>
+                      </div>
+                    </div>
+
+                    {/* Ratio */}
+                    <div>
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Aspect Ratio
+                      </label>
+                      <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                        <p className="text-white font-mono text-sm">{selectedItem.ratio}</p>
+                      </div>
+                    </div>
+
+                    {/* Resolution */}
+                    <div>
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Resolution
+                      </label>
+                      <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                        <p className="text-white font-mono text-sm">{resolution}</p>
+                      </div>
+                    </div>
+
+                    {/* Seed */}
+                    {seed && (
+                      <div>
+                        <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                          Seed
+                        </label>
+                        <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                          <p className="text-white font-mono text-sm">{seed}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Reference Images */}
+                  {selectedItem.referenceImages && selectedItem.referenceImages.length > 0 && (
+                    <div className="mb-6">
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Reference Images ({selectedItem.referenceImages.length})
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {selectedItem.referenceImages.map((img, idx) => (
+                          <div key={idx} className="aspect-square rounded-lg overflow-hidden border border-[#ec4899]/30 bg-[#050810]">
+                            <img src={img} alt={`Reference ${idx + 1}`} className="w-full h-full object-cover" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="mt-auto space-y-3">
+                    <button
+                      onClick={() => {
+                        duplicateItem(selectedItem);
+                        setSelectedItem(null);
+                      }}
+                      className="w-full px-6 py-3 bg-gradient-to-r from-[#f59e0b] to-[#ec4899] hover:opacity-90 rounded-xl text-white font-bold text-sm shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Clone Image
+                    </button>
+                    <div className="flex gap-3">
+                      <a
+                        href={selectedItem.imageUrl}
+                        download
+                        className="flex-1 px-6 py-3 bg-[#10b981] hover:bg-[#059669] rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download
+                      </a>
+                      <button
+                        onClick={() => {
+                          removeItem(selectedItem.id);
+                          setSelectedItem(null);
+                        }}
+                        className="flex-1 px-6 py-3 bg-red-500 hover:bg-red-600 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Settings Modal */}
       <AnimatePresence>
@@ -953,7 +1060,7 @@ export function ImageStudio() {
                     Model:
                   </label>
                   <div className="flex gap-3">
-                    {(imageModels.length ? imageModels : ["Imagen 3.5", "DALL-E 3", "Midjourney"]).map(m => (
+                    {["Imagen 3.5", "DALL-E 3", "Midjourney"].map(m => (
                       <button 
                         key={m}
                         onClick={() => setModel(m)}
@@ -975,7 +1082,7 @@ export function ImageStudio() {
                     Ratio:
                   </label>
                   <div className="flex gap-3">
-                    {(imageAspects.length ? imageAspects : ["1:1", "16:9", "9:16", "4:3"]).map(r => (
+                    {["1:1", "16:9", "9:16", "4:3"].map(r => (
                       <button 
                         key={r}
                         onClick={() => setRatio(r)}

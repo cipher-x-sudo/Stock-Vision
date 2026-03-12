@@ -1,78 +1,135 @@
-import { useState, useEffect } from "react";
-import { Search, Zap, ChevronDown, Download, Sparkles, Image as ImageIcon, Video, Shapes, Pen, Layers } from "lucide-react";
+import { useState } from "react";
+import { Search, Zap, ChevronDown, Download, Sparkles, Image as ImageIcon, Video, Shapes, Pen, Layers, Filter, X, Brain, Dna } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import * as Slider from "@radix-ui/react-slider";
 import * as Switch from "@radix-ui/react-switch";
 import Masonry from "react-responsive-masonry";
 import { PromptTable } from "../PromptTable";
-import { api, mapApiPromptsToRows, type SuggestedEvent, type TrackAdobeImage, type AnalysisResult, type AnalysisBrief } from "../../../services/api";
+import { useMediaViewer } from "../../contexts/MediaViewerContext";
+import { MediaItem } from "../MediaViewer";
 
-type EventCard = { id: string; icon: string; title: string; daysUntil: number };
+const upcomingEvents = [
+  { id: 1, icon: "🎄", title: "Christmas", daysUntil: 289 },
+  { id: 2, icon: "🎃", title: "Halloween", daysUntil: 234 },
+  { id: 3, icon: "💝", title: "Valentine's Day", daysUntil: 340 },
+  { id: 4, icon: "🎆", title: "New Year", daysUntil: 296 },
+  { id: 5, icon: "🦃", title: "Thanksgiving", daysUntil: 258 },
+  { id: 6, icon: "🎓", title: "Graduation Season", daysUntil: 92 },
+];
 
-/** Map Font Awesome class names (from API) to emoji so we don't render "fa-solid fa-clover" as text. */
-const FA_TO_EMOJI: Record<string, string> = {
-  clover: "🍀",
-  seedling: "🌱",
-  palette: "🎨",
-  egg: "🥚",
-  moon: "🌙",
-  gift: "🎁",
-  tree: "🎄",
-  pumpkin: "🎃",
-  heart: "💝",
-  fire: "🎆",
-  turkey: "🦃",
-  graduation: "🎓",
-  sun: "☀️",
-  star: "⭐",
-  snowflake: "❄️",
-  leaf: "🍂",
-  cake: "🎂",
-  champagne: "🍾",
-  bell: "🔔",
-  calendar: "📅",
-  mosque: "🕌",
-  starandcrescent: "🌙",
-  dove: "🕊️",
-  compact: "📅",
-};
+const mockTrendData = [
+  { month: "Apr", volume: 2400, id: "trend-apr" },
+  { month: "May", volume: 1398, id: "trend-may" },
+  { month: "Jun", volume: 9800, id: "trend-jun" },
+  { month: "Jul", volume: 3908, id: "trend-jul" },
+  { month: "Aug", volume: 4800, id: "trend-aug" },
+  { month: "Sep", volume: 3800, id: "trend-sep" },
+  { month: "Oct", volume: 4300, id: "trend-oct" },
+];
 
-function iconToEmoji(iconClass: string): string {
-  if (!iconClass || iconClass.startsWith("http") || !iconClass.includes("fa-")) return iconClass || "📅";
-  const match = iconClass.match(/fa-[a-z-]+\s+fa-([a-z0-9-]+)/i) || iconClass.match(/fa-([a-z0-9-]+)/i);
-  const key = match ? match[1].toLowerCase() : "";
-  return FA_TO_EMOJI[key] ?? "📅";
-}
+const mockTopSellers = [
+  "Cinematic ocean sunset with dramatic clouds",
+  "Minimalist product photography on marble",
+  "Neon cyberpunk cityscape at night",
+  "Macro photography of water droplets",
+  "Abstract geometric patterns in pastel colors",
+];
 
-function daysUntil(dateStr: string): number {
-  const d = new Date(dateStr);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  d.setHours(0, 0, 0, 0);
-  return Math.max(0, Math.ceil((d.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)));
-}
+const mockImages = [
+  { id: 1, downloads: 12500 },
+  { id: 2, downloads: 8900 },
+  { id: 3, downloads: 15200 },
+  { id: 4, downloads: 6700 },
+  { id: 5, downloads: 21300 },
+  { id: 6, downloads: 9400 },
+  { id: 7, downloads: 11800 },
+  { id: 8, downloads: 7200 },
+];
 
-function suggestedEventToCard(e: SuggestedEvent, index: number): EventCard {
-  return {
-    id: `${e.name}-${e.date}-${index}`,
-    icon: e.icon || "📅",
-    title: e.name,
-    daysUntil: daysUntil(e.date),
-  };
-}
-
-const orderToApi: Record<string, string> = {
-  relevance: "relevance",
-  "most-downloads": "nb_downloads",
-  newest: "creation",
-  featured: "featured",
-};
-
-interface ScanConfig {
-  searchTerm: string;
-  minimumDemand: number;
-}
+// Mock evidence data with real API structure
+const mockEvidence: MediaItem[] = [
+  {
+    id: "1933626801",
+    title: "World sleep day illustration with crescent moon and zzz, night sky and trees",
+    downloads: 8600,
+    premium: "Standard",
+    creator: "SHALENA",
+    creatorId: "212733487",
+    mediaType: "Illustration",
+    category: "Culture and Religion",
+    contentType: "image/jpeg",
+    dimensions: "5632 x 3072",
+    uploadDate: "2026-03-03 04:24:49.373885",
+    keywords: ["world", "sleep", "day", "illustration", "with", "crescent", "moon", "and", "zzz", "night", "sky", "trees"],
+    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
+    isAI: true
+  },
+  {
+    id: "1933626802",
+    title: "World sleep day banner with clock and text",
+    downloads: 4200,
+    premium: "Standard",
+    creator: "CreativeAI",
+    creatorId: "212733488",
+    mediaType: "Illustration",
+    category: "Culture and Religion",
+    contentType: "image/jpeg",
+    dimensions: "5120 x 2880",
+    uploadDate: "2026-03-03 05:10:22.373885",
+    keywords: ["world", "sleep", "day", "clock", "alarm"],
+    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
+    isAI: false
+  },
+  {
+    id: "1933626803",
+    title: "Sleeping crescent moon in night sky with stars",
+    downloads: 12100,
+    premium: "Premium",
+    creator: "DreamDesigns",
+    creatorId: "212733489",
+    mediaType: "Photo",
+    category: "Nature",
+    contentType: "image/jpeg",
+    dimensions: "6000 x 4000",
+    uploadDate: "2026-03-02 18:30:15.373885",
+    keywords: ["sleep", "moon", "night", "stars"],
+    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
+    isAI: false
+  },
+  {
+    id: "1933626804",
+    title: "Cartoon illustration world sleep day celebration",
+    downloads: 9300,
+    premium: "Standard",
+    creator: "VectorArt",
+    creatorId: "212733490",
+    mediaType: "Vector",
+    category: "Culture and Religion",
+    contentType: "image/svg",
+    dimensions: "4096 x 4096",
+    uploadDate: "2026-03-01 12:45:00.373885",
+    keywords: ["world", "sleep", "day", "cartoon", "celebration"],
+    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
+    isAI: true
+  },
+  {
+    id: "1933626805",
+    title: "Alarm clock on bedside table vintage style",
+    downloads: 15800,
+    premium: "Premium",
+    creator: "RetroPhotos",
+    creatorId: "212733491",
+    mediaType: "Photo",
+    category: "Lifestyle",
+    contentType: "image/jpeg",
+    dimensions: "5472 x 3648",
+    uploadDate: "2026-02-28 09:22:33.373885",
+    keywords: ["alarm", "clock", "sleep", "bedroom", "vintage"],
+    thumbnailUrl: "https://t3.ftcdn.net/jpg/19/33/62/68/360_F_1933626801_fIDCZ975yvJ42hPUNtEQghv4azboQeLe.jpg",
+    isAI: false
+  },
+];
 
 export function MarketPipeline() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -81,18 +138,22 @@ export function MarketPipeline() {
   const [showBrief, setShowBrief] = useState(false);
   const [showPrompts, setShowPrompts] = useState(false);
   const [minDemand, setMinDemand] = useState([500]);
-
-  const [events, setEvents] = useState<EventCard[]>([]);
-  const [eventsLoading, setEventsLoading] = useState(true);
-  const [eventsError, setEventsError] = useState<string | null>(null);
-
-  const [trackImages, setTrackImages] = useState<TrackAdobeImage[]>([]);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [promptsFromApi, setPromptsFromApi] = useState<ReturnType<typeof mapApiPromptsToRows>>([]);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [promptsLoading, setPromptsLoading] = useState(false);
-  const [promptsError, setPromptsError] = useState<string | null>(null);
-
+  const [scanProgress, setScanProgress] = useState(0);
+  const { openMedia } = useMediaViewer();
+  
+  // Loading states for different actions
+  const [isExpandingPrompts, setIsExpandingPrompts] = useState(false);
+  const [promptProgress, setPromptProgress] = useState(0);
+  const [isConceptualizing, setIsConceptualizing] = useState(false);
+  const [conceptProgress, setConceptProgress] = useState(0);
+  const [isExtractingDNA, setIsExtractingDNA] = useState(false);
+  const [dnaProgress, setDNAProgress] = useState(0);
+  
+  // Evidence filters
+  const [filterMediaType, setFilterMediaType] = useState<string>("all");
+  const [filterAIOnly, setFilterAIOnly] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  
   // Scan configuration state
   const [sortOrder, setSortOrder] = useState<"relevance" | "most-downloads" | "newest" | "featured">("relevance");
   const [assetType, setAssetType] = useState<"all" | "photo" | "video" | "vector" | "illustration">("all");
@@ -103,105 +164,64 @@ export function MarketPipeline() {
   const [yearTo, setYearTo] = useState("");
   const [aiGeneratedOnly, setAiGeneratedOnly] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    setEventsLoading(true);
-    setEventsError(null);
-    api
-      .suggestedEvents()
-      .then(({ events: list }) => {
-        if (!cancelled) setEvents(list.map((e, i) => suggestedEventToCard(e, i)));
-      })
-      .catch((err) => {
-        if (!cancelled) setEventsError(err instanceof Error ? err.message : "Failed to load events");
-      })
-      .finally(() => {
-        if (!cancelled) setEventsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
   const handleEventClick = (title: string) => {
     setSearchQuery(title);
   };
 
-  const handleStartScan = (config: ScanConfig) => {
-    setSearchQuery(config.searchTerm);
-    setMinDemand([config.minimumDemand]);
-    setShowConfig(false);
-    handleDeepScan();
-  };
-
-  const handleDeepScan = async () => {
-    if (!searchQuery.trim()) return;
+  const handleDeepScan = () => {
     setIsScanning(true);
     setShowBrief(false);
     setShowPrompts(false);
-    setScanError(null);
-    setTrackImages([]);
-    setAnalysisResult(null);
-    setPromptsFromApi([]);
-
-    try {
-      const from = Math.max(1, pagesFrom);
-      const to = Math.max(from, pagesTo);
-      const content_type = assetType === "all" ? undefined : assetType;
-      const order = orderToApi[sortOrder] ?? "relevance";
-
-      const allImages: TrackAdobeImage[] = [];
-      for (let p = from; p <= to; p++) {
-        const { images } = await api.trackAdobe({
-          q: searchQuery.trim(),
-          page: p,
-          endPage: to > from ? to : undefined,
-          ai_only: aiGeneratedOnly,
-          content_type,
-          order,
-        });
-        allImages.push(...images);
-      }
-      setTrackImages(allImages);
-
-      const eventName = searchQuery.trim();
-      const rawData = allImages;
-      const result = await api.analyzeMarket({ eventName, rawData });
-      setAnalysisResult(result);
-      setShowBrief(true);
-    } catch (err) {
-      setScanError(err instanceof Error ? err.message : "Scan failed");
-    } finally {
+    setScanProgress(0);
+    
+    // Simulate progress
+    const interval = setInterval(() => {
+      setScanProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + 2;
+      });
+    }, 50);
+    
+    setTimeout(() => {
+      clearInterval(interval);
       setIsScanning(false);
-    }
+      setShowBrief(true);
+      setScanProgress(0);
+    }, 2500);
   };
 
-  const handleExpandPrompts = async () => {
-    const brief: AnalysisBrief | undefined = analysisResult?.brief;
-    const eventName = searchQuery.trim();
-    if (!brief || !eventName) {
-      setPromptsError("Run a scan and analysis first.");
+  const handleExpandPrompts = () => {
+    setIsExpandingPrompts(true);
+    setPromptProgress(0);
+    
+    // Simulate progress
+    const interval = setInterval(() => {
+      setPromptProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + 2;
+      });
+    }, 50);
+    
+    setTimeout(() => {
+      clearInterval(interval);
+      setIsExpandingPrompts(false);
       setShowPrompts(true);
-      return;
-    }
-    setPromptsLoading(true);
-    setPromptsError(null);
-    try {
-      const { prompts: list } = await api.generatePrompts({ eventName, brief });
-      setPromptsFromApi(mapApiPromptsToRows(list));
-      setShowPrompts(true);
-    } catch (err) {
-      setPromptsError(err instanceof Error ? err.message : "Failed to generate prompts");
-      setShowPrompts(true);
-    } finally {
-      setPromptsLoading(false);
-    }
+      setPromptProgress(0);
+    }, 2500);
   };
 
-  const trendData = (analysisResult?.trends ?? []).map((t) => ({
-    month: t.month,
-    volume: t.demand ?? 0,
+  const prompts = Array.from({ length: 100 }, (_, i) => ({
+    id: i + 1,
+    scene: `Cinematic scene ${i + 1} with dramatic composition`,
+    style: i % 3 === 0 ? "Photorealistic" : i % 3 === 1 ? "Artistic" : "Hyperreal",
+    lighting: i % 4 === 0 ? "Golden hour" : i % 4 === 1 ? "Studio" : i % 4 === 2 ? "Natural" : "Dramatic",
   }));
-  const topSellers = analysisResult?.brief?.bestSellers ?? [];
-  const promptRows = promptsFromApi.length > 0 ? promptsFromApi : [];
 
   return (
     <div className="min-h-screen bg-[#050810] p-8">
@@ -221,14 +241,8 @@ export function MarketPipeline() {
           <h2 className="text-white font-semibold mb-4" style={{ fontSize: '1.25rem', fontFamily: 'Space Grotesk' }}>
             90-Day Horizon Calendar
           </h2>
-          {eventsError && (
-            <div className="text-amber-400/90 text-sm mb-4">{eventsError}</div>
-          )}
-          {eventsLoading && (
-            <div className="text-gray-400 text-sm">Loading events...</div>
-          )}
           <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-[#161d2f] scrollbar-track-transparent">
-            {events.map((event) => (
+            {upcomingEvents.map((event) => (
               <motion.button
                 key={event.id}
                 onClick={() => handleEventClick(event.title)}
@@ -237,7 +251,7 @@ export function MarketPipeline() {
                 whileTap={{ scale: 0.98 }}
               >
                 <div className="text-center">
-                  <div className="text-4xl mb-2">{iconToEmoji(event.icon)}</div>
+                  <div className="text-4xl mb-2">{event.icon}</div>
                   <h3 className="text-white font-medium mb-2">{event.title}</h3>
                   <div className="px-3 py-1 bg-[#0ea5e9]/20 border border-[#0ea5e9] rounded-full inline-block">
                     <span className="text-[#0ea5e9] font-mono" style={{ fontSize: '0.75rem' }}>
@@ -480,39 +494,191 @@ export function MarketPipeline() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-8"
             >
-              {scanError && (
-                <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                  {scanError}
-                </div>
-              )}
               {/* Evidence Section */}
               <div className="bg-[#0a0f1d]/50 border border-[#161d2f] rounded-xl p-6 backdrop-blur-xl">
-                <h2 className="text-white font-semibold mb-4" style={{ fontSize: '1.5rem' }}>
-                  Evidence
-                </h2>
-                <Masonry columnsCount={4} gutter="16px">
-                  {trackImages.map((img, index) => (
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-white font-semibold" style={{ fontSize: '1.5rem' }}>
+                    Evidence
+                  </h2>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowFilters(!showFilters)}
+                      className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all border flex items-center gap-2 ${
+                        showFilters
+                          ? "bg-[#0ea5e9]/20 border-[#0ea5e9] text-[#0ea5e9]"
+                          : "bg-[#161d2f]/50 border-[#161d2f] text-gray-400 hover:text-white hover:border-[#374151]"
+                      }`}
+                    >
+                      <Filter className="w-4 h-4" />
+                      Filters
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filters */}
+                <AnimatePresence>
+                  {showFilters && (
                     <motion.div
-                      key={img.id ?? index}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden mb-6"
+                    >
+                      <div className="pb-6 border-b border-[#161d2f] space-y-4">
+                        <div className="grid grid-cols-6 gap-2">
+                          {[
+                            { id: "all", label: "All", icon: Layers },
+                            { id: "Photo", label: "Photos", icon: ImageIcon },
+                            { id: "Video", label: "Videos", icon: Video },
+                            { id: "Vector", label: "Vectors", icon: Shapes },
+                            { id: "Illustration", label: "Illustrations", icon: Pen },
+                          ].map((type) => (
+                            <button
+                              key={type.id}
+                              onClick={() => setFilterMediaType(type.id)}
+                              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all border flex items-center justify-center gap-1.5 ${
+                                filterMediaType === type.id
+                                  ? "bg-[#0ea5e9]/20 border-[#0ea5e9] text-[#0ea5e9]"
+                                  : "bg-[#161d2f]/50 border-[#161d2f] text-gray-400 hover:text-white hover:border-[#374151]"
+                              }`}
+                            >
+                              <type.icon className="w-3.5 h-3.5" />
+                              {type.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-between px-3 py-2.5 bg-[#161d2f]/30 rounded-lg">
+                          <div>
+                            <p className="text-white font-medium text-sm">AI Generated Only</p>
+                            <p className="text-gray-600 text-xs">Show only AI-generated content</p>
+                          </div>
+                          <Switch.Root
+                            checked={filterAIOnly}
+                            onCheckedChange={setFilterAIOnly}
+                            className="w-11 h-6 bg-[#161d2f] rounded-full relative transition-colors data-[state=checked]:bg-[#0ea5e9]"
+                          >
+                            <Switch.Thumb className="block w-5 h-5 bg-white rounded-full transition-transform translate-x-0.5 data-[state=checked]:translate-x-[22px]" />
+                          </Switch.Root>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <Masonry columnsCount={4} gutter="16px">
+                  {mockEvidence
+                    .filter(item => filterMediaType === "all" || item.mediaType === filterMediaType)
+                    .filter(item => !filterAIOnly || item.isAI)
+                    .map((media, index) => (
+                    <motion.div
+                      key={media.id}
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: index * 0.05 }}
-                      className="relative group overflow-hidden rounded-lg bg-[#161d2f]"
+                      className="relative group overflow-hidden rounded-lg cursor-pointer bg-[#161d2f]"
+                      onClick={() => openMedia(media)}
+                      whileHover={{ scale: 1.02 }}
                     >
-                      {img.thumbnailUrl ? (
-                        <img
-                          src={img.thumbnailUrl}
-                          alt={img.title ?? ""}
-                          className="aspect-[3/4] w-full object-cover"
-                        />
-                      ) : (
-                        <div className="aspect-[3/4] bg-gradient-to-br from-[#161d2f] to-[#0a0f1d]" />
-                      )}
-                      <div className="absolute top-2 right-2 px-2 py-1 bg-[#10b981]/90 backdrop-blur-sm rounded-full flex items-center gap-1">
-                        <Download className="w-3 h-3 text-white" />
-                        <span className="text-white font-mono" style={{ fontSize: '0.75rem' }}>
-                          {img.downloads ? (parseInt(String(img.downloads), 10) / 1000).toFixed(1) + "k" : "—"}
-                        </span>
+                      {/* Thumbnail Image */}
+                      <img
+                        src={media.thumbnailUrl}
+                        alt={media.title}
+                        className="w-full aspect-[3/4] object-cover"
+                      />
+                      
+                      {/* Top Badges Row */}
+                      <div className="absolute top-2 left-2 right-2 flex items-start justify-between gap-2">
+                        {/* AI Badge */}
+                        {media.isAI && (
+                          <div className="px-2 py-1 bg-[#8b5cf6]/90 backdrop-blur-sm rounded-full flex items-center gap-1">
+                            <Sparkles className="w-3 h-3 text-white" />
+                            <span className="text-white text-[0.625rem] font-bold">AI</span>
+                          </div>
+                        )}
+                        
+                        <div className="ml-auto flex flex-col gap-1.5">
+                          {/* Downloads Badge */}
+                          <div className="px-2 py-1 bg-[#10b981]/90 backdrop-blur-sm rounded-full flex items-center gap-1">
+                            <Download className="w-3 h-3 text-white" />
+                            <span className="text-white font-mono text-[0.6875rem] font-bold">
+                              {media.downloads >= 1000 
+                                ? `${(media.downloads / 1000).toFixed(1)}k` 
+                                : media.downloads}
+                            </span>
+                          </div>
+                          
+                          {/* Premium Badge */}
+                          {media.premium === "Premium" && (
+                            <div className="px-2 py-1 bg-[#f59e0b]/90 backdrop-blur-sm rounded-full flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-white" />
+                              <span className="text-white text-[0.625rem] font-bold">PRO</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Bottom Info Card */}
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/95 to-transparent p-3 translate-y-full group-hover:translate-y-0 transition-transform duration-300">
+                        {/* Title */}
+                        <p className="text-white text-xs font-medium line-clamp-2 mb-2">
+                          {media.title}
+                        </p>
+                        
+                        {/* Meta Info Grid */}
+                        <div className="space-y-1.5">
+                          {/* Creator */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-gray-600 text-[0.625rem] uppercase tracking-wider">Creator:</span>
+                            <span className="text-gray-300 text-[0.625rem] font-medium">{media.creator}</span>
+                          </div>
+                          
+                          {/* Media Type & Category */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-gray-600 text-[0.625rem] uppercase tracking-wider">Type:</span>
+                            <span className="text-[#0ea5e9] text-[0.625rem] font-semibold">{media.mediaType}</span>
+                            <span className="text-gray-600 text-[0.625rem]">•</span>
+                            <span className="text-gray-400 text-[0.625rem]">{media.category}</span>
+                          </div>
+                          
+                          {/* Dimensions */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-gray-600 text-[0.625rem] uppercase tracking-wider">Size:</span>
+                            <span className="text-gray-300 text-[0.625rem] font-mono">{media.dimensions.replace(" x ", "×")}</span>
+                          </div>
+                          
+                          {/* Upload Date */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-gray-600 text-[0.625rem] uppercase tracking-wider">Uploaded:</span>
+                            <span className="text-gray-400 text-[0.625rem]">
+                              {new Date(media.uploadDate).toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric', 
+                                year: 'numeric' 
+                              })}
+                            </span>
+                          </div>
+                          
+                          {/* Keywords Preview */}
+                          {media.keywords && media.keywords.length > 0 && (
+                            <div className="pt-1.5 border-t border-gray-800/50">
+                              <div className="flex flex-wrap gap-1">
+                                {media.keywords.slice(0, 4).map((keyword, i) => (
+                                  <span 
+                                    key={i} 
+                                    className="px-1.5 py-0.5 bg-[#0ea5e9]/10 border border-[#0ea5e9]/30 rounded text-[#0ea5e9] text-[0.5625rem] font-mono"
+                                  >
+                                    {keyword}
+                                  </span>
+                                ))}
+                                {media.keywords.length > 4 && (
+                                  <span className="text-gray-600 text-[0.5625rem]">
+                                    +{media.keywords.length - 4}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </motion.div>
                   ))}
@@ -526,8 +692,7 @@ export function MarketPipeline() {
                     Trend Volume
                   </h2>
                   <ResponsiveContainer width="100%" height={200}>
-                    <LineChart data={trendData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#161d2f" />
+                    <LineChart data={mockTrendData}>
                       <XAxis dataKey="month" stroke="#6b7280" />
                       <YAxis stroke="#6b7280" />
                       <Tooltip
@@ -553,8 +718,8 @@ export function MarketPipeline() {
                     Top Sellers
                   </h2>
                   <ol className="space-y-3">
-                    {topSellers.map((seller, index) => (
-                      <li key={index} className="flex gap-3">
+                    {mockTopSellers.map((seller, index) => (
+                      <li key={`seller-${index}`} className="flex gap-3">
                         <span className="text-[#0ea5e9] font-mono font-bold">
                           {String(index + 1).padStart(2, "0")}
                         </span>
@@ -574,9 +739,8 @@ export function MarketPipeline() {
                 >
                   <motion.button
                     onClick={handleExpandPrompts}
-                    disabled={promptsLoading}
-                    className="px-12 py-6 bg-gradient-to-r from-[#f59e0b] to-[#8b5cf6] hover:opacity-90 rounded-xl text-white font-bold transition-all shadow-[0_0_40px_rgba(245,158,11,0.5)] relative overflow-hidden group disabled:opacity-60"
-                    whileHover={{ scale: promptsLoading ? 1 : 1.05 }}
+                    className="px-12 py-6 bg-gradient-to-r from-[#f59e0b] to-[#8b5cf6] hover:opacity-90 rounded-xl text-white font-bold transition-all shadow-[0_0_40px_rgba(245,158,11,0.5)] relative overflow-hidden group"
+                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.98 }}
                     style={{ fontSize: '1.25rem' }}
                   >
@@ -586,13 +750,9 @@ export function MarketPipeline() {
                       whileHover={{ scale: 2, opacity: 0 }}
                       transition={{ duration: 0.6 }}
                     />
-                    {promptsLoading ? "Generating prompts…" : "EXPAND INTO PROMPTS"}
+                    EXPAND INTO 100 PROMPTS
                   </motion.button>
                 </motion.div>
-              )}
-
-              {promptsError && (
-                <div className="text-amber-400/90 text-sm">{promptsError}</div>
               )}
 
               {/* Prompts Table */}
@@ -601,17 +761,188 @@ export function MarketPipeline() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                 >
-                  {promptRows.length > 0 ? (
-                    <PromptTable prompts={promptRows} />
-                  ) : (
-                    <div className="text-gray-400">No prompts yet. Click “EXPAND INTO PROMPTS” to generate.</div>
-                  )}
+                  <PromptTable prompts={prompts} />
                 </motion.div>
               )}
             </motion.div>
           )}
         </AnimatePresence>
       </div>
+
+      {/* Scanning Modal */}
+      <AnimatePresence>
+        {isScanning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="bg-[#0a0f1d] border-2 border-[#0ea5e9] rounded-2xl p-12 max-w-lg w-full mx-4 shadow-[0_0_60px_rgba(14,165,233,0.6)]"
+            >
+              {/* Animated Icon */}
+              <div className="flex justify-center mb-8">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  className="w-24 h-24 rounded-full bg-gradient-to-br from-[#0ea5e9] to-[#8b5cf6] flex items-center justify-center shadow-[0_0_40px_rgba(14,165,233,0.8)]"
+                >
+                  <Zap className="w-12 h-12 text-white" />
+                </motion.div>
+              </div>
+
+              {/* Title */}
+              <h2 className="text-white text-center font-bold mb-3" style={{ fontSize: '1.75rem', fontFamily: 'Space Grotesk' }}>
+                Deep Scanning Market
+              </h2>
+              <p className="text-gray-400 text-center mb-8">
+                Analyzing Adobe Stock data and extracting insights...
+              </p>
+
+              {/* Progress Bar */}
+              <div className="relative h-3 bg-[#161d2f] rounded-full overflow-hidden mb-4">
+                <motion.div
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#0ea5e9] to-[#8b5cf6] rounded-full"
+                  initial={{ width: "0%" }}
+                  animate={{ width: `${scanProgress}%` }}
+                  transition={{ duration: 0.3 }}
+                />
+              </div>
+
+              {/* Progress Percentage */}
+              <p className="text-[#0ea5e9] text-center font-mono font-bold text-xl">
+                {scanProgress}%
+              </p>
+
+              {/* Status Messages */}
+              <div className="mt-6 space-y-2">
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: scanProgress > 10 ? 1 : 0.3, x: 0 }}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <div className={`w-2 h-2 rounded-full ${scanProgress > 10 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={scanProgress > 10 ? 'text-white' : 'text-gray-600'}>
+                    Connecting to Adobe Stock API
+                  </span>
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: scanProgress > 30 ? 1 : 0.3, x: 0 }}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <div className={`w-2 h-2 rounded-full ${scanProgress > 30 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={scanProgress > 30 ? 'text-white' : 'text-gray-600'}>
+                    Fetching asset metadata
+                  </span>
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: scanProgress > 50 ? 1 : 0.3, x: 0 }}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <div className={`w-2 h-2 rounded-full ${scanProgress > 50 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={scanProgress > 50 ? 'text-white' : 'text-gray-600'}>
+                    Analyzing download trends
+                  </span>
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: scanProgress > 70 ? 1 : 0.3, x: 0 }}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <div className={`w-2 h-2 rounded-full ${scanProgress > 70 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={scanProgress > 70 ? 'text-white' : 'text-gray-600'}>
+                    Generating market insights
+                  </span>
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: scanProgress > 90 ? 1 : 0.3, x: 0 }}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <div className={`w-2 h-2 rounded-full ${scanProgress > 90 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={scanProgress > 90 ? 'text-white' : 'text-gray-600'}>
+                    Compiling evidence
+                  </span>
+                </motion.div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Expanding Prompts Modal */}
+      <AnimatePresence>
+        {isExpandingPrompts && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="bg-[#0a0f1d] border-2 border-[#f59e0b] rounded-2xl p-12 max-w-lg w-full mx-4 shadow-[0_0_60px_rgba(245,158,11,0.6)]"
+            >
+              <div className="flex justify-center mb-8">
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                  className="w-24 h-24 rounded-full bg-gradient-to-br from-[#f59e0b] to-[#8b5cf6] flex items-center justify-center shadow-[0_0_40px_rgba(245,158,11,0.8)]"
+                >
+                  <Sparkles className="w-12 h-12 text-white" />
+                </motion.div>
+              </div>
+              <h2 className="text-white text-center font-bold mb-3" style={{ fontSize: '1.75rem', fontFamily: 'Space Grotesk' }}>
+                Generating Prompts
+              </h2>
+              <p className="text-gray-400 text-center mb-8">
+                Expanding evidence into 100 creative prompts...
+              </p>
+              <div className="relative h-3 bg-[#161d2f] rounded-full overflow-hidden mb-4">
+                <motion.div
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#f59e0b] to-[#8b5cf6] rounded-full"
+                  initial={{ width: "0%" }}
+                  animate={{ width: `${promptProgress}%` }}
+                  transition={{ duration: 0.3 }}
+                />
+              </div>
+              <p className="text-[#f59e0b] text-center font-mono font-bold text-xl">
+                {promptProgress}%
+              </p>
+              <div className="mt-6 space-y-2">
+                <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: promptProgress > 10 ? 1 : 0.3, x: 0 }} className="flex items-center gap-2 text-sm">
+                  <div className={`w-2 h-2 rounded-full ${promptProgress > 10 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={promptProgress > 10 ? 'text-white' : 'text-gray-600'}>Analyzing evidence patterns</span>
+                </motion.div>
+                <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: promptProgress > 30 ? 1 : 0.3, x: 0 }} className="flex items-center gap-2 text-sm">
+                  <div className={`w-2 h-2 rounded-full ${promptProgress > 30 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={promptProgress > 30 ? 'text-white' : 'text-gray-600'}>Extracting visual themes</span>
+                </motion.div>
+                <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: promptProgress > 50 ? 1 : 0.3, x: 0 }} className="flex items-center gap-2 text-sm">
+                  <div className={`w-2 h-2 rounded-full ${promptProgress > 50 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={promptProgress > 50 ? 'text-white' : 'text-gray-600'}>Generating prompt variations</span>
+                </motion.div>
+                <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: promptProgress > 70 ? 1 : 0.3, x: 0 }} className="flex items-center gap-2 text-sm">
+                  <div className={`w-2 h-2 rounded-full ${promptProgress > 70 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={promptProgress > 70 ? 'text-white' : 'text-gray-600'}>Optimizing for AI engines</span>
+                </motion.div>
+                <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: promptProgress > 90 ? 1 : 0.3, x: 0 }} className="flex items-center gap-2 text-sm">
+                  <div className={`w-2 h-2 rounded-full ${promptProgress > 90 ? 'bg-[#10b981]' : 'bg-gray-600'}`} />
+                  <span className={promptProgress > 90 ? 'text-white' : 'text-gray-600'}>Finalizing prompt library</span>
+                </motion.div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

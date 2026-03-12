@@ -1,18 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import {
-  Sparkles, Film, Loader2, CheckCircle,
+import { 
+  Sparkles, Film, Loader2, CheckCircle, 
   Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Volume2, VolumeX, Plus, PlayCircle, Copy, Upload, Image as ImageIcon
 } from "lucide-react";
-import { api, STORAGE_BASE } from "../../../services/api";
-import { MediaInspectorModal } from "../MediaInspectorModal";
 
 interface QueueItem {
   id: number;
   prompt: string;
   model: string;
   ratio: string;
-  status: "pending" | "queued" | "rendering" | "success" | "failed";
+  status: "pending" | "rendering" | "success" | "failed";
   progress?: number;
   videoUrl?: string;
   thumbnailUrl?: string;
@@ -23,14 +21,10 @@ interface QueueItem {
   ingredientImages?: string[];
 }
 
-const POLL_INTERVAL_MS = 3000;
-
 export function VideoStudio() {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("Veo 3.1");
   const [ratio, setRatio] = useState("16:9");
-  const [videoModels, setVideoModels] = useState<string[]>([]);
-  const [videoAspects, setVideoAspects] = useState<string[]>([]);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedItem, setSelectedItem] = useState<QueueItem | null>(null);
@@ -45,18 +39,6 @@ export function VideoStudio() {
   const [startFrameUrl, setStartFrameUrl] = useState<string>("");
   const [endFrameUrl, setEndFrameUrl] = useState<string>("");
   const [ingredientImages, setIngredientImages] = useState<string[]>([]);
-
-  useEffect(() => {
-    api.flowConfig().then((c) => {
-      setVideoModels(c.videoModels?.length ? c.videoModels : ["Veo 3.1", "Veo 3.0", "Runway Gen-3"]);
-      setVideoAspects(c.videoAspects?.length ? c.videoAspects : ["16:9", "9:16", "21:9", "1:1"]);
-      setModel(c.defaults?.videoModel ?? "Veo 3.1");
-      setRatio(c.defaults?.videoAspect ?? "16:9");
-    }).catch(() => {
-      setVideoModels(["Veo 3.1", "Veo 3.0", "Runway Gen-3"]);
-      setVideoAspects(["16:9", "9:16", "21:9", "1:1"]);
-    });
-  }, []);
 
   const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -120,50 +102,38 @@ export function VideoStudio() {
     setPrompt("");
   };
 
-  function resolveVideoUrl(url: string | undefined): string | undefined {
-    if (!url) return undefined;
-    if (url.startsWith("http")) return url;
-    if (url.startsWith("/")) return `${window.location.origin}${url}`;
-    const base = STORAGE_BASE.replace(/\/$/, "");
-    return `${base}/${url}`;
-  }
-
-  const generateItem = async (id: number) => {
-    const item = queue.find((i) => i.id === id);
-    if (!item || item.status !== "pending") return;
-
-    setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "rendering" as const, progress: 0 } : i));
-
-    try {
-      const { jobId } = await api.flowGenerate({
-        prompt: item.prompt,
-        mode: "video",
-        model: item.model,
-        aspect: item.ratio,
-        count: 1,
-        res: resolution === "1080p" ? "720p" : resolution,
-      });
-
-      const poll = async (): Promise<void> => {
-        const res = await api.flowGenerateStatus(jobId);
-        if (res.status === "done" && res.result) {
-          const r = res.result as { videos?: Array<{ url?: string; video_url?: string; fifeUrl?: string }>; video?: { url?: string; fifeUrl?: string } };
-          const vid = r.videos?.[0] ?? r.video;
-          const url = vid?.url ?? (vid as { video_url?: string })?.video_url ?? (vid as { fifeUrl?: string })?.fifeUrl;
-          const videoUrl = resolveVideoUrl(url);
-          setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "success" as const, progress: 100, videoUrl, thumbnailUrl: videoUrl } : i));
-          return;
-        }
-        if (res.status === "error") {
-          setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "failed" as const } : i));
-          return;
-        }
-        setTimeout(poll, POLL_INTERVAL_MS);
-      };
-      await poll();
-    } catch {
-      setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "failed" as const } : i));
-    }
+  const generateItem = (id: number) => {
+    setQueue(prev => prev.map(item => 
+      item.id === id ? { ...item, status: "rendering" as const, progress: 0 } : item
+    ));
+    
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 10;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        
+        const mockVideoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+        const mockThumbnail = `https://picsum.photos/seed/${id}/800/450`;
+        
+        setTimeout(() => {
+          setQueue(prev => prev.map(item => 
+            item.id === id ? { 
+              ...item, 
+              status: "success" as const, 
+              progress: 100,
+              videoUrl: mockVideoUrl,
+              thumbnailUrl: mockThumbnail
+            } : item
+          ));
+        }, 500);
+      } else {
+        setQueue(prev => prev.map(item => 
+          item.id === id ? { ...item, progress } : item
+        ));
+      }
+    }, 600);
   };
 
   const generateAll = () => {
@@ -388,7 +358,7 @@ export function VideoStudio() {
             <div className="flex items-center gap-3">
               <span className="text-gray-500 text-sm font-medium">Model:</span>
               <div className="flex gap-2">
-                {(videoModels.length ? videoModels : ["Veo 3.1", "Veo 3.0", "Runway Gen-3"]).map(m => (
+                {["Veo 3.1", "Veo 3.0", "Runway Gen-3"].map(m => (
                   <button 
                     key={m}
                     onClick={() => setModel(m)}
@@ -409,7 +379,7 @@ export function VideoStudio() {
             <div className="flex items-center gap-3">
               <span className="text-gray-500 text-sm font-medium">Ratio:</span>
               <div className="flex gap-2">
-                {(videoAspects.length ? videoAspects : ["16:9", "9:16", "21:9", "1:1"]).map(r => (
+                {["16:9", "9:16", "21:9", "1:1"].map(r => (
                   <button 
                     key={r}
                     onClick={() => setRatio(r)}
@@ -510,9 +480,12 @@ export function VideoStudio() {
                             </>
                           )}
 
-                          {/* Success State - Show video thumbnail */}
-                          {item.status === "success" && (
-                            <>
+                          {/* Success State - Show thumbnail */}
+                          {item.status === "success" && item.videoUrl && (
+                            <div 
+                              className="absolute inset-0 cursor-pointer"
+                              onClick={() => setSelectedItem(item)}
+                            >
                               {item.thumbnailUrl && (
                                 <img 
                                   src={item.thumbnailUrl} 
@@ -520,33 +493,40 @@ export function VideoStudio() {
                                   className="w-full h-full object-cover"
                                 />
                               )}
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100">
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100 pointer-events-none">
                                 <button 
-                                  onClick={() => setSelectedItem(item)}
-                                  className="p-4 bg-[#8b5cf6] hover:bg-[#7c3aed] rounded-full transition-all shadow-lg"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedItem(item);
+                                  }}
+                                  className="p-4 bg-[#8b5cf6] hover:bg-[#7c3aed] rounded-full transition-all shadow-lg pointer-events-auto"
                                 >
                                   <Play className="w-6 h-6 text-white" />
                                 </button>
                                 <a 
                                   href={item.videoUrl}
                                   download
-                                  className="p-3 bg-[#10b981] hover:bg-[#059669] rounded-lg transition-all"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="p-3 bg-[#10b981] hover:bg-[#059669] rounded-lg transition-all pointer-events-auto"
                                 >
                                   <Download className="w-5 h-5 text-white" />
                                 </a>
                                 <button 
-                                  onClick={() => removeItem(item.id)}
-                                  className="p-3 bg-red-500 hover:bg-red-600 rounded-lg transition-all"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeItem(item.id);
+                                  }}
+                                  className="p-3 bg-red-500 hover:bg-red-600 rounded-lg transition-all pointer-events-auto"
                                 >
                                   <Trash2 className="w-5 h-5 text-white" />
                                 </button>
                               </div>
-                              <div className="absolute bottom-3 left-3 px-2 py-1 bg-emerald-500/90 backdrop-blur-sm rounded text-xs text-white font-semibold flex items-center gap-1">
-                                <CheckCircle className="w-3 h-3" />
-                                Ready
+                              {/* Duration Badge */}
+                              <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/80 backdrop-blur-sm rounded text-xs text-white font-mono font-bold pointer-events-none">
+                                {duration}
                               </div>
-                            </>
+                            </div>
                           )}
                         </div>
 
@@ -683,27 +663,232 @@ export function VideoStudio() {
         )}
       </div>
 
-      {selectedItem && selectedItem.videoUrl && (
-        <MediaInspectorModal
-          open={true}
-          onClose={() => setSelectedItem(null)}
-          type="video"
-          mediaUrl={selectedItem.videoUrl}
-          title="Video"
-          subtitle={`${selectedItem.model} • ${selectedItem.ratio}`}
-          resolution="720P"
-          aspectRatio={selectedItem.ratio}
-          format="MP4"
-          visionPrompt={selectedItem.prompt}
-          onDownload={() => {
-            const a = document.createElement("a");
-            a.href = selectedItem.videoUrl!;
-            a.download = `video-${selectedItem.id}.mp4`;
-            a.rel = "noopener";
-            a.click();
-          }}
-        />
-      )}
+      {/* Fullscreen Video Player Modal */}
+      <AnimatePresence>
+        {selectedItem && selectedItem.videoUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/90 backdrop-blur-xl z-50 flex items-center justify-center p-8"
+            onClick={() => setSelectedItem(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="max-w-6xl w-full bg-[#0a0f1d] border border-[#161d2f] rounded-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-[#161d2f]">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#8b5cf6] to-[#d946ef] flex items-center justify-center">
+                    <Film className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-white font-bold text-lg" style={{ fontFamily: 'Space Grotesk' }}>
+                      Generation Details
+                    </h2>
+                    <p className="text-gray-500 text-xs font-mono">
+                      {selectedItem.timestamp.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsMuted(!isMuted);
+                    }}
+                    className="p-2 hover:bg-[#161d2f] rounded-lg text-gray-400 hover:text-white transition-all"
+                  >
+                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                  </button>
+                  <button
+                    onClick={() => setSelectedItem(null)}
+                    className="p-2 hover:bg-[#161d2f] rounded-lg text-gray-400 hover:text-white transition-all"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="flex gap-6 p-6">
+                {/* Video Player - Left Side */}
+                <div className="flex-1">
+                  <div className="aspect-video rounded-xl overflow-hidden bg-[#050810] border border-[#161d2f]">
+                    <video
+                      src={selectedItem.videoUrl}
+                      className="w-full h-full object-cover"
+                      controls
+                      autoPlay
+                      muted={isMuted}
+                    />
+                  </div>
+                </div>
+
+                {/* Details Panel - Right Side */}
+                <div className="w-[400px] flex flex-col">
+                  {/* Prompt */}
+                  <div className="mb-6">
+                    <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                      Prompt
+                    </label>
+                    <div className="p-4 bg-[#050810] border border-[#161d2f] rounded-lg">
+                      <p className="text-white font-mono text-sm leading-relaxed">
+                        {selectedItem.prompt}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Generation Settings */}
+                  <div className="space-y-4 mb-6">
+                    {/* Model */}
+                    <div>
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Model
+                      </label>
+                      <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                        <p className="text-white font-mono text-sm">{selectedItem.model}</p>
+                      </div>
+                    </div>
+
+                    {/* Ratio */}
+                    <div>
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Aspect Ratio
+                      </label>
+                      <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                        <p className="text-white font-mono text-sm">{selectedItem.ratio}</p>
+                      </div>
+                    </div>
+
+                    {/* Resolution */}
+                    <div>
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Resolution
+                      </label>
+                      <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                        <p className="text-white font-mono text-sm">{resolution}</p>
+                      </div>
+                    </div>
+
+                    {/* Duration */}
+                    <div>
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Duration
+                      </label>
+                      <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                        <p className="text-white font-mono text-sm">{duration}</p>
+                      </div>
+                    </div>
+
+                    {/* FPS */}
+                    <div>
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        FPS
+                      </label>
+                      <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                        <p className="text-white font-mono text-sm">{fps}</p>
+                      </div>
+                    </div>
+
+                    {/* Seed */}
+                    {seed && (
+                      <div>
+                        <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                          Seed
+                        </label>
+                        <div className="px-4 py-3 bg-[#050810] border border-[#161d2f] rounded-lg">
+                          <p className="text-white font-mono text-sm">{seed}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Start/End Frames or Ingredient Images */}
+                  {selectedItem.mode === "frames" && (selectedItem.startFrameUrl || selectedItem.endFrameUrl) && (
+                    <div className="mb-6">
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Frames
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {selectedItem.startFrameUrl && (
+                          <div>
+                            <div className="aspect-video rounded-lg overflow-hidden border border-[#8b5cf6]/30 bg-[#050810]">
+                              <img src={selectedItem.startFrameUrl} alt="Start Frame" className="w-full h-full object-cover" />
+                            </div>
+                            <p className="text-gray-500 text-xs mt-1 text-center">Start</p>
+                          </div>
+                        )}
+                        {selectedItem.endFrameUrl && (
+                          <div>
+                            <div className="aspect-video rounded-lg overflow-hidden border border-[#8b5cf6]/30 bg-[#050810]">
+                              <img src={selectedItem.endFrameUrl} alt="End Frame" className="w-full h-full object-cover" />
+                            </div>
+                            <p className="text-gray-500 text-xs mt-1 text-center">End</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedItem.mode === "ingredients" && selectedItem.ingredientImages && selectedItem.ingredientImages.length > 0 && (
+                    <div className="mb-6">
+                      <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-2">
+                        Ingredients ({selectedItem.ingredientImages.length})
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {selectedItem.ingredientImages.map((img, idx) => (
+                          <div key={idx} className="aspect-video rounded-lg overflow-hidden border border-[#d946ef]/30 bg-[#050810]">
+                            <img src={img} alt={`Ingredient ${idx + 1}`} className="w-full h-full object-cover" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="mt-auto space-y-3">
+                    <button
+                      onClick={() => {
+                        duplicateItem(selectedItem);
+                        setSelectedItem(null);
+                      }}
+                      className="w-full px-6 py-3 bg-gradient-to-r from-[#8b5cf6] to-[#d946ef] hover:opacity-90 rounded-xl text-white font-bold text-sm shadow-lg shadow-purple-500/30 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Clone Video
+                    </button>
+                    <div className="flex gap-3">
+                      <a
+                        href={selectedItem.videoUrl}
+                        download
+                        className="flex-1 px-6 py-3 bg-[#10b981] hover:bg-[#059669] rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download
+                      </a>
+                      <button
+                        onClick={() => {
+                          removeItem(selectedItem.id);
+                          setSelectedItem(null);
+                        }}
+                        className="flex-1 px-6 py-3 bg-red-500 hover:bg-red-600 rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Settings Modal */}
       <AnimatePresence>
@@ -769,9 +954,9 @@ export function VideoStudio() {
                     onChange={(e) => setModel(e.target.value)}
                     className="w-full px-4 py-3 bg-[#161d2f] border border-[#1f2937] hover:border-[#8b5cf6] focus:border-[#8b5cf6] rounded-lg text-white text-sm outline-none transition-all cursor-pointer"
                   >
-                    {(videoModels.length ? videoModels : ["Veo 3.1", "Veo 3.0", "Runway Gen-3"]).map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
+                    <option value="Veo 3.1">Veo 3.1 - Fast (Audio)</option>
+                    <option value="Veo 3.0">Veo 3.0 - Standard</option>
+                    <option value="Runway Gen-3">Runway Gen-3 - Alpha</option>
                   </select>
                 </div>
 
@@ -781,7 +966,7 @@ export function VideoStudio() {
                     Aspect Ratio
                   </label>
                   <div className="grid grid-cols-4 gap-3">
-                    {(videoAspects.length ? videoAspects : ["16:9", "9:16", "1:1", "21:9"]).map(r => (
+                    {["16:9", "9:16", "1:1", "21:9"].map(r => (
                       <button 
                         key={r}
                         onClick={() => setRatio(r)}
