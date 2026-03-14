@@ -1,13 +1,13 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { 
-  Upload, Dna, Sparkles, Loader2, 
-  Play, Trash2, Download, Archive, Film, Image as ImageIcon,
-  Wand2, X, Copy, ChevronDown, ChevronUp, Zap, ArrowLeft, Search, User, Maximize2,
-  Settings, ArrowRight, Crown, Video, MonitorPlay
+import {
+  Upload, Dna, Sparkles, Loader2,
+  Trash2, Download, Archive, Film, Image as ImageIcon,
+  Wand2, X, ArrowLeft, Search, User, Maximize2,
+  Settings
 } from "lucide-react";
 import { CloneSettingsPanel } from "./CloneSettingsPanel";
-import { api } from "../../../services/api";
+import { api, type ImagePromptFromApi } from "../../../services/api";
 
 interface CSVAsset {
   id: string;
@@ -32,6 +32,126 @@ interface CloneSession {
   videoPrompt?: string;
 }
 
+interface StoredImagePromptMeta {
+  source: "generate-cloning-prompts";
+  analysis: ImagePromptFromApi | null;
+  flowPrompt: string;
+  model: string;
+  aspect: string;
+  count: number;
+  resolution: string;
+  negativePrompt?: string;
+  error?: string;
+}
+
+interface StoredVideoPromptMeta {
+  source: "flow-video";
+  basedOn: "cloned-image";
+  flowPrompt: string;
+  model: string;
+  aspect: string;
+  count: number;
+  resolution: string;
+  duration: string;
+  cameraMotion: string;
+  negativePrompt?: string;
+  error?: string;
+}
+
+const DEFAULT_FLOW_IMAGE_MODEL = "Nano Banana Pro";
+
+function mapImageAspectRatio(value: string): string {
+  switch (value) {
+    case "1:1":
+      return "1:1 Square";
+    case "9:16":
+      return "9:16 Portrait";
+    default:
+      return "16:9 Landscape";
+  }
+}
+
+function mapVideoAspectRatio(value: string): string {
+  switch (value) {
+    case "PORTRAIT (9:16)":
+      return "9:16 Portrait";
+    case "1:1":
+      return "1:1 Square";
+    case "21:9":
+      return "21:9 Cinewide";
+    default:
+      return "16:9 Landscape";
+  }
+}
+
+function mapVideoResolution(value: string): string {
+  const normalized = value.toUpperCase();
+  if (normalized.includes("4K")) return "4K";
+  if (normalized.includes("1080")) return "1080p";
+  return "720p";
+}
+
+function mapVideoModel(value: string): string {
+  switch (value) {
+    case "VEO 3.1 HIGH QUALITY":
+      return "Veo 3.1 - Quality";
+    default:
+      return "Veo 3.1 - Fast";
+  }
+}
+
+function buildImageClonePrompt(prompt: ImagePromptFromApi, negativePrompt: string): string {
+  const sections: string[] = [];
+  if (prompt.scene) sections.push(prompt.scene.trim());
+  if (prompt.style) sections.push(`style: ${prompt.style}`);
+  if (prompt.shot?.composition) sections.push(`composition: ${prompt.shot.composition}`);
+  if (prompt.shot?.lens) sections.push(`lens: ${prompt.shot.lens}`);
+  if (prompt.shot?.resolution) sections.push(`target resolution: ${prompt.shot.resolution}`);
+  if (prompt.lighting?.primary) sections.push(`primary lighting: ${prompt.lighting.primary}`);
+  if (prompt.lighting?.secondary) sections.push(`secondary lighting: ${prompt.lighting.secondary}`);
+  if (prompt.lighting?.accents) sections.push(`accents: ${prompt.lighting.accents}`);
+
+  const palette = prompt.color_palette
+    ? Object.entries(prompt.color_palette)
+        .map(([name, color]) => `${name} ${color}`)
+        .join(", ")
+    : "";
+  if (palette) sections.push(`color palette: ${palette}`);
+  if (prompt.constraints?.length) sections.push(`constraints: ${prompt.constraints.join(", ")}`);
+  if (prompt.visual_rules?.grain) sections.push(`grain: ${prompt.visual_rules.grain}`);
+  if (prompt.visual_rules?.sharpen) sections.push(`sharpen: ${prompt.visual_rules.sharpen}`);
+
+  const avoid = [
+    ...(prompt.visual_rules?.prohibited_elements ?? []),
+    ...negativePrompt.split(",").map((item) => item.trim()).filter(Boolean),
+  ];
+  if (avoid.length) sections.push(`avoid: ${Array.from(new Set(avoid)).join(", ")}`);
+
+  return sections.filter(Boolean).join(". ");
+}
+
+function buildVideoClonePrompt(imagePrompt: string, cameraMotion: string, duration: string, negativePrompt: string): string {
+  const sections = [
+    imagePrompt,
+    "Animate this cloned image into a polished stock-style video shot.",
+    "Preserve the original subject, composition, style, and lighting.",
+    cameraMotion ? `Camera motion: ${cameraMotion}.` : "",
+    duration ? `Target duration: ${duration}.` : "",
+  ];
+  const avoid = negativePrompt.split(",").map((item) => item.trim()).filter(Boolean);
+  if (avoid.length) sections.push(`Avoid: ${Array.from(new Set(avoid)).join(", ")}.`);
+  return sections.filter(Boolean).join(" ");
+}
+
+function parseStoredJson<T>(value?: string): T | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function DNAExtraction() {
   const [assets, setAssets] = useState<CSVAsset[]>([]);
   const [sessions, setSessions] = useState<CloneSession[]>([]);
@@ -53,12 +173,329 @@ export function DNAExtraction() {
   const [videoAspectRatio, setVideoAspectRatio] = useState("LANDSCAPE (16:9)");
   const [autoDownload, setAutoDownload] = useState(false);
   const [negativePrompt, setNegativePrompt] = useState("");
+  const [threadCount, setThreadCount] = useState(2);
+  const [activeThreads, setActiveThreads] = useState(0);
+  const [isBatchRunning, setIsBatchRunning] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sessionsRef = useRef<CloneSession[]>([]);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  const updateSession = (sessionId: string, updates: Partial<CloneSession>) => {
+    setSessions((prev) => prev.map((session) => (session.id === sessionId ? { ...session, ...updates } : session)));
+  };
+
+  const getSession = (sessionId: string) => sessionsRef.current.find((session) => session.id === sessionId);
+
+  const blobToDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+
+  const ensureDataUrl = async (source: string) => {
+    if (!source) return "";
+    if (source.startsWith("data:")) return source;
+    try {
+      const response = await fetch(source);
+      const blob = await response.blob();
+      return await blobToDataUrl(blob);
+    } catch {
+      return source;
+    }
+  };
+
+  const pollFlowJob = async (
+    jobId: string,
+    onProgress?: (progress: number) => void
+  ): Promise<NonNullable<Awaited<ReturnType<typeof api.flowGenerateStatus>>["result"]>> => {
+    while (true) {
+      const status = await api.flowGenerateStatus(jobId);
+      onProgress?.(status.progress ?? 0);
+      if (status.status === "done" && status.result) {
+        return status.result;
+      }
+      if (status.status === "error") {
+        throw new Error(status.error ?? "Flow generation failed");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+  };
+
+  const analyzeSession = async (sessionId: string) => {
+    const session = getSession(sessionId);
+    if (!session) return;
+
+    updateSession(sessionId, {
+      currentStep: 1,
+      analyzing: true,
+      cloning: false,
+      progress: 0,
+      clonedImageUrl: undefined,
+      videoUrl: undefined,
+      videoPrompt: undefined,
+    });
+
+    try {
+      const imageUrl = session.asset.thumbnailUrl?.startsWith("data:") ? session.asset.thumbnailUrl : session.asset.thumbnailUrl;
+      const res = await api.generateCloningPrompts({
+        images: [{ url: imageUrl ?? "", title: session.asset.title, id: session.asset.id }],
+      });
+      const prompts = res.prompts ?? [];
+      const firstPrompt = prompts[0];
+      const flowImagePrompt = firstPrompt ? buildImageClonePrompt(firstPrompt, negativePrompt) : "";
+      if (!flowImagePrompt) {
+        throw new Error("No cloning prompt was returned for the selected asset.");
+      }
+
+      const imagePromptMeta: StoredImagePromptMeta = {
+        source: "generate-cloning-prompts",
+        analysis: firstPrompt ?? null,
+        flowPrompt: flowImagePrompt,
+        model: DEFAULT_FLOW_IMAGE_MODEL,
+        aspect: mapImageAspectRatio(aspectRatio),
+        count: 1,
+        resolution: imageResolution,
+        negativePrompt: negativePrompt || undefined,
+      };
+
+      updateSession(sessionId, {
+        currentStep: 1,
+        analyzing: false,
+        progress: 100,
+        imagePrompt: JSON.stringify(imagePromptMeta, null, 2),
+      });
+    } catch (error) {
+      const fallback: StoredImagePromptMeta = {
+        source: "generate-cloning-prompts",
+        analysis: null,
+        flowPrompt: "",
+        model: DEFAULT_FLOW_IMAGE_MODEL,
+        aspect: mapImageAspectRatio(aspectRatio),
+        count: 1,
+        resolution: imageResolution,
+        negativePrompt: negativePrompt || undefined,
+        error: error instanceof Error ? error.message : "Cloning prompt request failed.",
+      };
+      updateSession(sessionId, {
+        currentStep: 1,
+        analyzing: false,
+        progress: 0,
+        imagePrompt: JSON.stringify(fallback, null, 2),
+      });
+    }
+  };
+
+  const generateImageForSession = async (sessionId: string) => {
+    const session = getSession(sessionId);
+    if (!session) return;
+
+    const storedImagePrompt = parseStoredJson<StoredImagePromptMeta>(session.imagePrompt);
+    if (!storedImagePrompt?.flowPrompt) {
+      updateSession(sessionId, {
+        currentStep: 1,
+        cloning: false,
+        progress: 0,
+        imagePrompt: JSON.stringify(
+          {
+            source: "generate-cloning-prompts",
+            analysis: storedImagePrompt?.analysis ?? null,
+            flowPrompt: "",
+            model: DEFAULT_FLOW_IMAGE_MODEL,
+            aspect: mapImageAspectRatio(aspectRatio),
+            count: 1,
+            resolution: imageResolution,
+            negativePrompt: negativePrompt || undefined,
+            error: "Run STEP 1: ANALYZE first to get the clone prompt.",
+          } satisfies StoredImagePromptMeta,
+          null,
+          2
+        ),
+      });
+      return;
+    }
+
+    const imagePromptMeta: StoredImagePromptMeta = {
+      ...storedImagePrompt,
+      aspect: mapImageAspectRatio(aspectRatio),
+      resolution: imageResolution,
+      count: 1,
+      negativePrompt: negativePrompt || undefined,
+      error: undefined,
+    };
+
+    updateSession(sessionId, {
+      currentStep: 2,
+      analyzing: false,
+      cloning: true,
+      progress: 0,
+      imagePrompt: JSON.stringify(imagePromptMeta, null, 2),
+    });
+
+    try {
+      const { jobId } = await api.flowGenerate({
+        prompt: imagePromptMeta.flowPrompt,
+        mode: "image",
+        model: imagePromptMeta.model,
+        aspect: imagePromptMeta.aspect,
+        count: 1,
+        res: imagePromptMeta.resolution,
+      });
+
+      const result = await pollFlowJob(jobId, (progress) => {
+        updateSession(sessionId, {
+          progress: Math.max(5, Math.min(95, progress)),
+        });
+      });
+
+      const clonedImageUrl = result.images?.map((img) => img.url ?? "").find(Boolean);
+      if (!clonedImageUrl) {
+        throw new Error("Flow image generation finished without returning an image.");
+      }
+
+      updateSession(sessionId, {
+        currentStep: 2,
+        cloning: false,
+        progress: 100,
+        clonedImageUrl,
+        imagePrompt: JSON.stringify(imagePromptMeta, null, 2),
+      });
+    } catch (error) {
+      updateSession(sessionId, {
+        currentStep: 1,
+        cloning: false,
+        progress: 0,
+        imagePrompt: JSON.stringify(
+          {
+            ...imagePromptMeta,
+            error: error instanceof Error ? error.message : "Image generation failed.",
+          },
+          null,
+          2
+        ),
+      });
+    }
+  };
+
+  const generateVideoForSession = async (sessionId: string) => {
+    const session = getSession(sessionId);
+    if (!session) return;
+
+    const storedImagePrompt = parseStoredJson<StoredImagePromptMeta>(session.imagePrompt);
+    const videoPromptMeta: StoredVideoPromptMeta = {
+      source: "flow-video",
+      basedOn: "cloned-image",
+      flowPrompt: buildVideoClonePrompt(storedImagePrompt?.flowPrompt ?? "", cameraMotion, videoDuration, negativePrompt),
+      model: mapVideoModel(videoModel),
+      aspect: mapVideoAspectRatio(videoAspectRatio),
+      count: 1,
+      resolution: mapVideoResolution(videoResolution),
+      duration: videoDuration,
+      cameraMotion,
+      negativePrompt: negativePrompt || undefined,
+    };
+
+    if (!videoPromptMeta.flowPrompt) {
+      updateSession(sessionId, {
+        currentStep: 2,
+        videoUrl: undefined,
+        videoPrompt: JSON.stringify(
+          {
+            ...videoPromptMeta,
+            error: "Run STEP 1: ANALYZE first to get the clone prompt.",
+          },
+          null,
+          2
+        ),
+      });
+      return;
+    }
+
+    updateSession(sessionId, {
+      currentStep: 3,
+      videoUrl: undefined,
+      videoPrompt: JSON.stringify(videoPromptMeta, null, 2),
+    });
+
+    try {
+      const image_bytes = await ensureDataUrl(session.clonedImageUrl ?? session.asset.thumbnailUrl ?? "");
+      const { jobId } = await api.flowGenerate({
+        prompt: videoPromptMeta.flowPrompt,
+        mode: "video",
+        model: videoPromptMeta.model,
+        aspect: videoPromptMeta.aspect,
+        count: 1,
+        res: videoPromptMeta.resolution,
+        image_bytes,
+      });
+
+      const result = await pollFlowJob(jobId);
+      const videoUrl =
+        result.videos?.map((video) => video.url ?? video.video_url ?? video.fifeUrl ?? "").find(Boolean) ??
+        result.video?.url ??
+        result.video?.fifeUrl;
+
+      if (!videoUrl) {
+        throw new Error("Flow video generation finished without returning a video.");
+      }
+
+      updateSession(sessionId, {
+        currentStep: 4,
+        videoUrl,
+        videoPrompt: JSON.stringify(videoPromptMeta, null, 2),
+      });
+    } catch (error) {
+      updateSession(sessionId, {
+        currentStep: 2,
+        videoUrl: undefined,
+        videoPrompt: JSON.stringify(
+          {
+            ...videoPromptMeta,
+            error: error instanceof Error ? error.message : "Video generation failed.",
+          },
+          null,
+          2
+        ),
+      });
+    }
+  };
+
+  const runSessionsWithThreads = async (sessionIds: string[], worker: (sessionId: string) => Promise<void>) => {
+    if (!sessionIds.length || isBatchRunning) return;
+
+    setIsBatchRunning(true);
+    let nextIndex = 0;
+    const workerCount = Math.min(threadCount, sessionIds.length);
+
+    try {
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          while (true) {
+            const currentIndex = nextIndex++;
+            if (currentIndex >= sessionIds.length) return;
+
+            setActiveThreads((count) => count + 1);
+            try {
+              await worker(sessionIds[currentIndex]);
+            } finally {
+              setActiveThreads((count) => Math.max(0, count - 1));
+            }
+          }
+        })
+      );
+    } finally {
+      setIsBatchRunning(false);
+      setActiveThreads(0);
+    }
+  };
 
   const parseCSV = (text: string): CSVAsset[] => {
     const lines = text.split('\n').filter(line => line.trim());
-    const headers = lines[0].split(',');
     
     return lines.slice(1).map((line, index) => {
       const values = line.match(/(\".*?\"|[^,]+)(?=\s*,|\s*$)/g) || [];
@@ -125,133 +562,6 @@ export function DNAExtraction() {
 
     setSessions(prev => [...newSessions, ...prev]);
     setSelectedImageIds(new Set());
-  };
-
-  const proceedToNextStep = (sessionId: string) => {
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
-
-    const nextStep = session.currentStep + 1;
-
-    if (nextStep === 1) {
-      // Step 1: Analyze
-      setSessions(prev => prev.map(s => 
-        s.id === sessionId ? { ...s, currentStep: 1 } : s
-      ));
-    } else if (nextStep === 2) {
-      // Step 2: Generate Image — cloning prompts from asset, then optional image gen
-      setSessions(prev => prev.map(s => 
-        s.id === sessionId ? { ...s, currentStep: 2, analyzing: true, progress: 0 } : s
-      ));
-
-      (async () => {
-        try {
-          const { asset } = session;
-          const imageUrl = asset.thumbnailUrl?.startsWith("data:") ? asset.thumbnailUrl : asset.thumbnailUrl;
-          const res = await api.generateCloningPrompts({
-            images: [{ url: imageUrl ?? "", title: asset.title, id: asset.id }],
-          });
-          const prompts = res.prompts ?? [];
-          const imagePromptStr = prompts.length > 0 ? JSON.stringify(prompts, null, 2) : "{}";
-
-          setSessions(prev => prev.map(s => 
-            s.id === sessionId ? { ...s, analyzing: false, cloning: true, progress: 30 } : s
-          ));
-
-          let clonedImageUrl: string | undefined;
-          if (prompts.length > 0 && prompts[0].scene) {
-            try {
-              const imgRes = await api.generateImage({
-                scene: prompts[0].scene,
-                style: prompts[0].style,
-                lighting: prompts[0].lighting ? { primary: prompts[0].lighting.primary } : undefined,
-                shot: prompts[0].shot,
-                aspectRatio: aspectRatio,
-                imageSize: imageResolution,
-              });
-              clonedImageUrl = imgRes.url ?? (imgRes.image ? `data:image/png;base64,${imgRes.image}` : undefined);
-            } catch (_) {
-              clonedImageUrl = `https://picsum.photos/seed/${sessionId}/800/450`;
-            }
-          } else {
-            clonedImageUrl = `https://picsum.photos/seed/${sessionId}/800/450`;
-          }
-
-          setSessions(prev => prev.map(s => 
-            s.id === sessionId ? { 
-              ...s, 
-              cloning: false,
-              progress: 100,
-              clonedImageUrl,
-              imagePrompt: imagePromptStr,
-            } : s
-          ));
-        } catch (_) {
-          const fallback = JSON.stringify({ model: imageModel, prompt: "Cloning prompt request failed.", keywords_extracted: [] }, null, 2);
-          setSessions(prev => prev.map(s => 
-            s.id === sessionId ? { 
-              ...s, 
-              analyzing: false,
-              cloning: false,
-              progress: 100,
-              clonedImageUrl: `https://picsum.photos/seed/${sessionId}/800/450`,
-              imagePrompt: fallback,
-            } : s
-          ));
-        }
-      })();
-    } else if (nextStep === 3) {
-      // Step 3: Generate Video — video plan from cloned image + prompt
-      setSessions(prev => prev.map(s => 
-        s.id === sessionId ? { ...s, currentStep: 3 } : s
-      ));
-
-      (async () => {
-        const currentSession = sessions.find(s => s.id === sessionId);
-        if (!currentSession) return;
-        let imageForPlan = currentSession.clonedImageUrl ?? currentSession.asset.thumbnailUrl ?? "";
-        const promptForPlan = currentSession.imagePrompt ?? "";
-        if (imageForPlan.startsWith("http") && !imageForPlan.startsWith("/")) {
-          try {
-            const r = await fetch(imageForPlan);
-            const blob = await r.blob();
-            imageForPlan = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
-          } catch {
-            // keep original URL
-          }
-        }
-        try {
-          const planRes = await api.generateVideoPlan({
-            image: imageForPlan,
-            prompt: promptForPlan.slice(0, 2000),
-          });
-          const planStr = JSON.stringify(planRes.plan ?? {}, null, 2);
-          setSessions(prev => prev.map(s => 
-            s.id === sessionId ? { 
-              ...s, 
-              currentStep: 4,
-              videoPrompt: planStr,
-              videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            } : s
-          ));
-        } catch (_) {
-          const fallback = JSON.stringify({ model: videoModel, director_mode: cameraMotion, based_on: "cloned image" }, null, 2);
-          setSessions(prev => prev.map(s => 
-            s.id === sessionId ? { 
-              ...s, 
-              currentStep: 4,
-              videoPrompt: fallback,
-              videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            } : s
-          ));
-        }
-      })();
-    }
   };
 
   const removeSession = (id: string) => {
@@ -496,9 +806,32 @@ export function DNAExtraction() {
               </div>
 
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 px-4 py-2 bg-[#0a0f1d] border border-[#161d2f] rounded-lg">
+                <div className="flex items-center gap-3 px-4 py-2 bg-[#0a0f1d] border border-[#161d2f] rounded-lg">
                   <span className="text-gray-500 font-mono text-xs">THREADS</span>
-                  <span className="text-white font-mono font-bold">2</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setThreadCount((count) => Math.max(1, count - 1))}
+                      disabled={isBatchRunning}
+                      className="w-6 h-6 rounded border border-[#161d2f] text-gray-400 disabled:opacity-40"
+                    >
+                      -
+                    </button>
+                    <span className="text-white font-mono font-bold min-w-4 text-center">{threadCount}</span>
+                    <button
+                      type="button"
+                      onClick={() => setThreadCount((count) => Math.min(8, count + 1))}
+                      disabled={isBatchRunning}
+                      className="w-6 h-6 rounded border border-[#161d2f] text-gray-400 disabled:opacity-40"
+                    >
+                      +
+                    </button>
+                  </div>
+                  {isBatchRunning && (
+                    <span className="text-[10px] font-mono text-pink-400">
+                      ACTIVE {activeThreads}
+                    </span>
+                  )}
                 </div>
 
                 <button 
@@ -515,16 +848,21 @@ export function DNAExtraction() {
             <CloneSettingsPanel
               expanded={cloneSettingsExpanded}
               onToggle={() => setCloneSettingsExpanded(!cloneSettingsExpanded)}
+              // Image Setting
+              imageModel={imageModel}
+              setImageModel={setImageModel}
               aspectRatio={aspectRatio}
               setAspectRatio={setAspectRatio}
               imageResolution={imageResolution}
               setImageResolution={setImageResolution}
+              // Video Settings
               videoModel={videoModel}
               setVideoModel={setVideoModel}
               videoAspectRatio={videoAspectRatio}
               setVideoAspectRatio={setVideoAspectRatio}
               videoResolution={videoResolution}
               setVideoResolution={setVideoResolution}
+              // Global
               autoDownload={autoDownload}
               setAutoDownload={setAutoDownload}
               negativePrompt={negativePrompt}
@@ -764,22 +1102,18 @@ export function DNAExtraction() {
         >
           <div className="bg-[#0a0f1d] border-2 border-[#ec4899]/50 rounded-2xl shadow-2xl shadow-pink-500/20 px-6 py-4 backdrop-blur-xl">
             <div className="flex items-center gap-4">
-              {/* Settings Icon */}
-              <div className="flex items-center gap-2 px-3 py-2 bg-[#161d2f] rounded-lg">
-                <Settings className="w-4 h-4 text-pink-500" />
-                <span className="text-gray-400 text-xs font-mono">ACTIONS</span>
-              </div>
 
-              {/* Divider */}
-              <div className="w-px h-8 bg-[#161d2f]" />
 
               {/* Step Buttons */}
               <button
                 onClick={() => {
-                  const idleSessions = sessions.filter(s => s.currentStep === 0);
-                  idleSessions.forEach(s => proceedToNextStep(s.id));
+                  const idleSessions = sessions
+                    .filter((s) => s.currentStep === 0 && !s.analyzing)
+                    .map((s) => s.id);
+                  void runSessionsWithThreads(idleSessions, analyzeSession);
                 }}
-                className="px-4 py-2.5 bg-gradient-to-r from-[#ec4899] to-[#8b5cf6] hover:opacity-90 rounded-lg text-white font-bold text-xs transition-all flex items-center gap-2"
+                disabled={isBatchRunning}
+                className="px-4 py-2.5 bg-gradient-to-r from-[#ec4899] to-[#8b5cf6] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-white font-bold text-xs transition-all flex items-center gap-2"
               >
                 <Sparkles className="w-3 h-3" />
                 STEP 1: ANALYZE
@@ -787,10 +1121,13 @@ export function DNAExtraction() {
 
               <button
                 onClick={() => {
-                  const step1Sessions = sessions.filter(s => s.currentStep === 1);
-                  step1Sessions.forEach(s => proceedToNextStep(s.id));
+                  const analyzedSessions = sessions
+                    .filter((s) => s.currentStep === 1 && !s.analyzing && !!s.imagePrompt)
+                    .map((s) => s.id);
+                  void runSessionsWithThreads(analyzedSessions, generateImageForSession);
                 }}
-                className="px-4 py-2.5 bg-gradient-to-r from-[#f59e0b] to-[#ec4899] hover:opacity-90 rounded-lg text-white font-bold text-xs transition-all flex items-center gap-2"
+                disabled={isBatchRunning}
+                className="px-4 py-2.5 bg-gradient-to-r from-[#f59e0b] to-[#ec4899] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-white font-bold text-xs transition-all flex items-center gap-2"
               >
                 <Wand2 className="w-3 h-3" />
                 STEP 2: IMAGE
@@ -798,10 +1135,13 @@ export function DNAExtraction() {
 
               <button
                 onClick={() => {
-                  const step2Sessions = sessions.filter(s => s.currentStep === 2 && !s.analyzing && !s.cloning && s.clonedImageUrl);
-                  step2Sessions.forEach(s => proceedToNextStep(s.id));
+                  const imagedSessions = sessions
+                    .filter((s) => s.currentStep === 2 && !s.analyzing && !s.cloning && !!s.clonedImageUrl)
+                    .map((s) => s.id);
+                  void runSessionsWithThreads(imagedSessions, generateVideoForSession);
                 }}
-                className="px-4 py-2.5 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:opacity-90 rounded-lg text-white font-bold text-xs transition-all flex items-center gap-2"
+                disabled={isBatchRunning}
+                className="px-4 py-2.5 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-white font-bold text-xs transition-all flex items-center gap-2"
               >
                 <Film className="w-3 h-3" />
                 STEP 3: VIDEO

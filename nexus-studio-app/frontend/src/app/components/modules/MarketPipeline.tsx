@@ -20,6 +20,18 @@ const EVENT_ICONS: Record<string, string> = {
   "default": "📅",
 };
 
+function isFontAwesomeIcon(icon: string): boolean {
+  return /\bfa-[a-z0-9-]+\b/i.test(icon);
+}
+
+function renderEventIcon(icon: string) {
+  const safeIcon = icon?.trim() || EVENT_ICONS.default;
+  if (isFontAwesomeIcon(safeIcon)) {
+    return <i className={safeIcon} aria-hidden="true" />;
+  }
+  return <span>{safeIcon}</span>;
+}
+
 function trackAdobeToMediaItem(img: TrackAdobeImage): MediaItem {
   const downloads = typeof img.downloads === "string" ? parseInt(img.downloads, 10) : (img.downloads ?? 0);
   return {
@@ -223,7 +235,7 @@ export function MarketPipeline() {
                 whileTap={{ scale: 0.98 }}
               >
                 <div className="text-center">
-                  <div className="text-4xl mb-2">{event.icon}</div>
+                  <div className="text-4xl mb-2">{renderEventIcon(event.icon)}</div>
                   <h3 className="text-white font-medium mb-2">{event.title}</h3>
                   <div className="px-3 py-1 bg-[#0ea5e9]/20 border border-[#0ea5e9] rounded-full inline-block">
                     <span className="text-[#0ea5e9] font-mono" style={{ fontSize: '0.75rem' }}>
