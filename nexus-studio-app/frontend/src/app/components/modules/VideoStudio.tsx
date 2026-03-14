@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Sparkles, Film, Loader2, CheckCircle, 
-  Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Volume2, VolumeX, Plus, PlayCircle, Copy, Upload, Image as ImageIcon, ChevronLeft, ChevronRight
+  Download, Settings, Grid3x3, List, Trash2, Play, X, ExternalLink, Volume2, VolumeX, Plus, PlayCircle, Copy, Upload, Image as ImageIcon, ChevronLeft, ChevronRight, PauseCircle, Square
 } from "lucide-react";
 import { api } from "../../../services/api";
 
@@ -49,6 +49,12 @@ export function VideoStudio() {
   const [videoAspects, setVideoAspects] = useState<string[]>(DEFAULT_VIDEO_ASPECTS);
   const [modalVideoIndex, setModalVideoIndex] = useState(0);
   const [threads, setThreads] = useState(2);
+  const [generationState, setGenerationState] = useState<"idle" | "running" | "paused">("idle");
+  const generationStateRef = useRef<"idle" | "running" | "paused">("idle");
+
+  useEffect(() => {
+    generationStateRef.current = generationState;
+  }, [generationState]);
 
   const handleDownload = async (url: string, filename: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -391,11 +397,23 @@ export function VideoStudio() {
     const pendingItems = queue.filter(item => item.status === "pending");
     if (pendingItems.length === 0) return;
 
+    setGenerationState("running");
+    generationStateRef.current = "running";
+
     let currentIndex = 0;
     let activeWorkers = 0;
 
     const worker = async () => {
       while (currentIndex < pendingItems.length) {
+        if (generationStateRef.current === "idle") {
+          break;
+        }
+        
+        if (generationStateRef.current === "paused") {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+
         // Grab the next item
         const itemIndex = currentIndex++;
         const item = pendingItems[itemIndex];
@@ -404,12 +422,30 @@ export function VideoStudio() {
         await generateItem(item.id);
         activeWorkers--;
       }
+      
+      // If this was the last active worker finishing the queue naturally, reset state
+      if (activeWorkers === 0 && currentIndex >= pendingItems.length) {
+         setGenerationState("idle");
+      }
     };
 
     // Start exactly `threads` number of workers concurrently
     for (let i = 0; i < Math.min(threads, pendingItems.length); i++) {
       worker();
     }
+  };
+
+  const stopGeneration = () => {
+    setGenerationState("idle");
+    generationStateRef.current = "idle";
+  };
+
+  const togglePause = () => {
+    setGenerationState(prev => {
+      const next = prev === "running" ? "paused" : "running";
+      generationStateRef.current = next;
+      return next;
+    });
   };
 
   const duplicateItem = (item: QueueItem) => {
@@ -505,7 +541,7 @@ export function VideoStudio() {
               )}
             </div>
 
-            {pendingCount > 0 && (
+            {pendingCount > 0 && generationState === "idle" && (
               <motion.button
                 onClick={generateAll}
                 className="px-6 py-2.5 bg-gradient-to-r from-[#8b5cf6] to-[#d946ef] hover:opacity-90 rounded-lg text-white font-bold text-sm shadow-lg shadow-purple-500/30 transition-all flex items-center gap-2"
@@ -515,6 +551,29 @@ export function VideoStudio() {
                 <PlayCircle className="w-4 h-4" />
                 Render All ({pendingCount})
               </motion.button>
+            )}
+
+            {(generationState === "running" || generationState === "paused") && (
+              <div className="flex items-center gap-2">
+                <motion.button
+                  onClick={togglePause}
+                  className={`px-6 py-2.5 rounded-lg text-white font-bold text-sm shadow-lg transition-all flex items-center gap-2 ${generationState === "paused" ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/30" : "bg-[#8b5cf6] hover:opacity-90 shadow-purple-500/30"}`}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  {generationState === "paused" ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
+                  {generationState === "paused" ? "Resume" : "Pause"}
+                </motion.button>
+                <motion.button
+                  onClick={stopGeneration}
+                  className="px-4 py-2.5 bg-red-500 hover:bg-red-600 rounded-lg text-white font-bold text-sm shadow-lg shadow-red-500/30 transition-all flex items-center gap-2"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Square className="w-4 h-4" fill="currentColor" />
+                  Stop
+                </motion.button>
+              </div>
             )}
 
             <div className="flex items-center gap-1 bg-[#0a0f1d] border border-[#161d2f] rounded-lg p-1">
