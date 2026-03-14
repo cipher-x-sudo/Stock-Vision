@@ -24,12 +24,12 @@ interface PromptMapping {
 }
 
 const DEFAULT_IMAGE_MODELS = ["Imagen 4", "Nano Banana", "Nano Banana Pro"];
-const DEFAULT_ASPECTS = ["16:9 Landscape", "9:16 Portrait", "1:1 Square"];
+const DEFAULT_ASPECTS = ["16:9", "9:16", "1:1"];
 
 export function ImageStudio() {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("Nano Banana Pro");
-  const [ratio, setRatio] = useState("16:9 Landscape");
+  const [ratio, setRatio] = useState("16:9");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedItem, setSelectedItem] = useState<QueueItem | null>(null);
