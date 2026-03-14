@@ -11,7 +11,7 @@ interface QueueItem {
   prompt: string;
   model: string;
   ratio: string;
-  status: "pending" | "rendering" | "success" | "failed";
+  status: "pending" | "rendering" | "success" | "failed" | "queued";
   progress?: number;
   videoUrl?: string;
   videoUrls?: string[];
@@ -24,12 +24,12 @@ interface QueueItem {
 }
 
 const DEFAULT_VIDEO_MODELS = ["Veo 3.1 - Fast (Audio)", "Veo 3.1 - Fast", "Veo 3.1 - Quality"];
-const DEFAULT_VIDEO_ASPECTS = ["16:9 Landscape", "9:16 Portrait", "1:1 Square"];
+const DEFAULT_VIDEO_ASPECTS = ["16:9", "9:16", "1:1"];
 
 export function VideoStudio() {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("Veo 3.1 - Fast (Audio)");
-  const [ratio, setRatio] = useState("16:9 Landscape");
+  const [ratio, setRatio] = useState("16:9");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedItem, setSelectedItem] = useState<QueueItem | null>(null);
