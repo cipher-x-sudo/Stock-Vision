@@ -484,7 +484,9 @@ export function VideoStudio() {
                     >
                       <div className="bg-[#0a0f1d] border border-[#161d2f] hover:border-[#8b5cf6]/50 rounded-xl overflow-hidden transition-all">
                         {/* Video Preview */}
-                        <div className="aspect-video bg-gradient-to-br from-[#161d2f] to-[#0a0f1d] flex items-center justify-center relative overflow-hidden">
+                        <div className={`${
+                          item.ratio.includes("9:16") ? "aspect-[9/16]" : item.ratio.includes("1:1") ? "aspect-square" : "aspect-video"
+                        } bg-gradient-to-br from-[#161d2f] to-[#0a0f1d] flex items-center justify-center relative overflow-hidden`}>
                           {/* Pending State */}
                           {item.status === "pending" && (
                             <>
@@ -783,8 +785,11 @@ export function VideoStudio() {
               {/* Content */}
               <div className="flex gap-6 p-6">
                 {/* Video Player - Left Side */}
-                <div className="flex-1">
-                  <div className="aspect-video rounded-xl overflow-hidden bg-[#050810] border border-[#161d2f] relative">
+                <div className="flex-1 overflow-hidden" style={{ maxHeight: '80vh' }}>
+                  <div className={`${
+                          selectedItem.ratio.includes("9:16") ? "aspect-[9/16]" : selectedItem.ratio.includes("1:1") ? "aspect-square" : "aspect-video"
+                        } mx-auto rounded-xl overflow-hidden bg-[#050810] border border-[#161d2f] relative h-full`}
+                        style={{ maxWidth: '100%', maxHeight: '100%' }}>
                     {n > 1 && (
                       <>
                         <button

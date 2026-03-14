@@ -104,10 +104,21 @@ export class VideoAPI {
     for (let i = 0; i < count; i++) {
       const requestSceneId = uuid();
       const requestSeed = typeof options?.seed === 'number' ? options.seed : Math.floor(Math.random() * 999999);
+      let finalModelKey = modelKey;
+      if (aspectKey === 'VIDEO_ASPECT_RATIO_PORTRAIT') {
+        if (finalModelKey.includes('landscape')) {
+          finalModelKey = finalModelKey.replace('landscape', 'portrait');
+        } else if (finalModelKey.includes('fast_ultra')) {
+          finalModelKey = finalModelKey.replace('fast_ultra', 'fast_portrait_ultra');
+        } else if (finalModelKey === 'veo_3_1_t2v') {
+          finalModelKey = 'veo_3_1_t2v_portrait'; // Best guess for high quality portrait model
+        }
+      }
+
       const requestItem = {
         aspectRatio: aspectKey,
         seed: requestSeed,
-        videoModelKey: modelKey,
+        videoModelKey: finalModelKey,
         metadata: { sceneId: requestSceneId },
       };
 
