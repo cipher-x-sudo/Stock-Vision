@@ -143,6 +143,36 @@ export function VideoStudio() {
     setPrompt("");
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (url: string) => void) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        setter(event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset input
+  };
+
+  const handleIngredientUpload = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        setIngredientImages(prev => {
+          const newArr = [...prev];
+          newArr[index] = event.target!.result as string;
+          return newArr;
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset input
+  };
+
   const generateItem = async (id: number) => {
     const item = queue.find((i) => i.id === id);
     if (!item || item.status !== "pending") return;
@@ -150,15 +180,45 @@ export function VideoStudio() {
       i.id === id ? { ...i, status: "rendering" as const, progress: 0 } : i
     ));
     try {
-      const body: { prompt: string; mode: "video"; model?: string; aspect?: string; count?: number; res?: string; image_bytes?: string; start_image_media_id?: string; reference_image_media_ids?: string[] } = {
+      let generationModel = item.model;
+      let startImageMediaId: string | undefined = undefined;
+
+      if (item.startFrameUrl) {
+        generationModel = "Veo 3.1 - I2V Start Image";
+        const base64Data = item.startFrameUrl.split(',')[1] || item.startFrameUrl;
+        const uploadRes = await api.flowImageUpload({
+          image_bytes: base64Data,
+          aspect_ratio: item.ratio
+        });
+        if (uploadRes.success) {
+          startImageMediaId = uploadRes.media_id;
+        } else {
+          throw new Error("Failed to upload start frame");
+        }
+      } else if (item.ingredientImages && item.ingredientImages.some(img => img)) {
+        generationModel = "Veo 3.1 - I2V Start Image";
+      }
+
+      const body: { prompt: string; mode: "video"; model?: string; aspect?: string; count?: number; res?: string; image_bytes?: string; image_bytes_array?: string[]; start_image_media_id?: string; reference_image_media_ids?: string[] } = {
         prompt: item.prompt,
         mode: "video",
-        model,
-        aspect: ratio,
+        model: generationModel,
+        aspect: item.ratio,
         count,
         res: resolution,
       };
-      if (item.startFrameUrl) body.image_bytes = item.startFrameUrl;
+
+      if (startImageMediaId) {
+        body.start_image_media_id = startImageMediaId;
+      }
+      
+      if (item.mode === "ingredients" && item.ingredientImages) {
+        const validImages = item.ingredientImages.filter(img => img).map(img => img.split(',')[1] || img);
+        if (validImages.length > 0) {
+          body.image_bytes_array = validImages;
+        }
+      }
+
       const { jobId } = await api.flowGenerate(body);
       const poll = async (): Promise<{ videoUrl?: string; videoUrls?: string[]; thumbnailUrl?: string }> => {
         const status = await api.flowGenerateStatus(jobId);
@@ -385,18 +445,28 @@ export function VideoStudio() {
             <div className="mt-6 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-gray-400 text-sm font-medium mb-2">Start Frame</label>
-                <div className="relative aspect-video bg-[#0a0f1d] border-2 border-dashed border-[#161d2f] hover:border-[#8b5cf6] rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group">
-                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" />
-                  <Upload className="w-8 h-8 text-gray-600 group-hover:text-[#8b5cf6] transition-all" />
-                  <span className="text-gray-600 text-sm mt-2 group-hover:text-[#8b5cf6]">Upload Start Frame</span>
+                <div className="relative aspect-video bg-[#0a0f1d] border-2 border-dashed border-[#161d2f] hover:border-[#8b5cf6] rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group overflow-hidden">
+                  {startFrameUrl ? (
+                    <img src={startFrameUrl} alt="Start Frame" className="absolute inset-0 w-full h-full object-cover" />
+                  ) : null}
+                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*" onChange={(e) => handleImageUpload(e, setStartFrameUrl)} />
+                  <div className={`flex flex-col items-center justify-center transition-all z-0 ${startFrameUrl ? 'opacity-0 hover:opacity-100 bg-black/50 w-full h-full absolute inset-0' : ''}`}>
+                    <Upload className="w-8 h-8 text-gray-600 group-hover:text-white transition-all" />
+                    <span className="text-gray-600 text-sm mt-2 group-hover:text-white">Upload Start Frame</span>
+                  </div>
                 </div>
               </div>
               <div>
                 <label className="block text-gray-400 text-sm font-medium mb-2">End Frame</label>
-                <div className="relative aspect-video bg-[#0a0f1d] border-2 border-dashed border-[#161d2f] hover:border-[#8b5cf6] rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group">
-                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" />
-                  <Upload className="w-8 h-8 text-gray-600 group-hover:text-[#8b5cf6] transition-all" />
-                  <span className="text-gray-600 text-sm mt-2 group-hover:text-[#8b5cf6]">Upload End Frame</span>
+                <div className="relative aspect-video bg-[#0a0f1d] border-2 border-dashed border-[#161d2f] hover:border-[#8b5cf6] rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group overflow-hidden">
+                  {endFrameUrl ? (
+                    <img src={endFrameUrl} alt="End Frame" className="absolute inset-0 w-full h-full object-cover" />
+                  ) : null}
+                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*" onChange={(e) => handleImageUpload(e, setEndFrameUrl)} />
+                  <div className={`flex flex-col items-center justify-center transition-all z-0 ${endFrameUrl ? 'opacity-0 hover:opacity-100 bg-black/50 w-full h-full absolute inset-0' : ''}`}>
+                    <Upload className="w-8 h-8 text-gray-600 group-hover:text-white transition-all" />
+                    <span className="text-gray-600 text-sm mt-2 group-hover:text-white">Upload End Frame</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -408,10 +478,15 @@ export function VideoStudio() {
               <label className="block text-gray-400 text-sm font-medium mb-3">Ingredient Images</label>
               <div className="grid grid-cols-4 gap-3">
                 {[...Array(4)].map((_, i) => (
-                  <div key={i} className="relative aspect-video bg-[#0a0f1d] border-2 border-dashed border-[#161d2f] hover:border-[#8b5cf6] rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group">
-                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" />
-                    <ImageIcon className="w-6 h-6 text-gray-600 group-hover:text-[#8b5cf6] transition-all" />
-                    <span className="text-gray-600 text-xs mt-1 group-hover:text-[#8b5cf6]">Image {i + 1}</span>
+                  <div key={i} className="relative aspect-video bg-[#0a0f1d] border-2 border-dashed border-[#161d2f] hover:border-[#8b5cf6] rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group overflow-hidden">
+                    {ingredientImages[i] ? (
+                      <img src={ingredientImages[i]} alt={`Ingredient ${i + 1}`} className="absolute inset-0 w-full h-full object-cover" />
+                    ) : null}
+                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*" onChange={(e) => handleIngredientUpload(e, i)} />
+                    <div className={`flex flex-col items-center justify-center transition-all z-0 ${ingredientImages[i] ? 'opacity-0 hover:opacity-100 bg-black/50 w-full h-full absolute inset-0' : ''}`}>
+                      <ImageIcon className="w-6 h-6 text-gray-600 group-hover:text-white transition-all" />
+                      <span className="text-gray-600 text-xs mt-1 group-hover:text-white">Image {i + 1}</span>
+                    </div>
                   </div>
                 ))}
               </div>

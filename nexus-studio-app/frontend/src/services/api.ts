@@ -321,9 +321,29 @@ export const api = {
     return get<{ items: FlowHistoryItem[] }>("/api/flow/history", qs as Record<string, string>);
   },
 
+  /** GET /api/flow/project/current — get current project id */
+  async flowProjectCurrent(): Promise<{ success: boolean; projectId: string | null }> {
+    return get("/api/flow/project/current");
+  },
+
+  /** POST /api/flow/project/change — change working project id */
+  async flowProjectChange(body: { projectId: string }): Promise<{ success: boolean; projectId?: string; error?: string }> {
+    return post("/api/flow/project/change", body);
+  },
+
+  /** POST /api/flow/project/create — create new project */
+  async flowProjectCreate(): Promise<{ success: boolean; projectId?: string; error?: string }> {
+    return post("/api/flow/project/create", {});
+  },
+
   /** GET /api/flow/auth/status — Flow auth ready, projectId, hasToken. */
   async flowAuthStatus(): Promise<{ ready: boolean; projectId: string | null; hasToken: boolean }> {
     return get("/api/flow/auth/status");
+  },
+
+  /** POST /api/flow/image/upload — upload an image to get a mediaId for video generation */
+  async flowImageUpload(body: { image_bytes: string; mime_type?: string; aspect_ratio?: string }): Promise<{ success: boolean; media_id: string; width: number; height: number; error?: string }> {
+    return post<{ success: boolean; media_id: string; width: number; height: number; error?: string }>("/api/flow/image/upload", body);
   },
 
   /** POST /api/flow/generate — start image or video generation job. Returns jobId. */
