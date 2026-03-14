@@ -21,6 +21,7 @@ interface QueueItem {
   startFrameUrl?: string;
   endFrameUrl?: string;
   ingredientImages?: string[];
+  fileName?: string;
 }
 
 const DEFAULT_VIDEO_MODELS = ["Veo 3.1 - Fast (Audio)", "Veo 3.1 - Fast", "Veo 3.1 - Quality"];
@@ -37,9 +38,9 @@ export function VideoStudio() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [duration, setDuration] = useState("5s");
   const [fps, setFps] = useState("30");
-  const [resolution, setResolution] = useState("1080p");
+  const [resolution, setResolution] = useState("720p");
   const [videoMode, setVideoMode] = useState<"text-to-video" | "ingredients" | "frames" | "nano-video">("text-to-video");
-  const [count, setCount] = useState(2);
+  const [count, setCount] = useState(1);
   const [seed, setSeed] = useState("");
   const [startFrameUrl, setStartFrameUrl] = useState<string>("");
   const [endFrameUrl, setEndFrameUrl] = useState<string>("");
@@ -47,6 +48,7 @@ export function VideoStudio() {
   const [videoModels, setVideoModels] = useState<string[]>(DEFAULT_VIDEO_MODELS);
   const [videoAspects, setVideoAspects] = useState<string[]>(DEFAULT_VIDEO_ASPECTS);
   const [modalVideoIndex, setModalVideoIndex] = useState(0);
+  const [threads, setThreads] = useState(2);
 
   const handleDownload = async (url: string, filename: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -81,6 +83,25 @@ export function VideoStudio() {
     }).catch(() => {});
   }, []);
 
+  const parseCSVLineShared = (text: string) => {
+    const parts = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '"') inQuotes = !inQuotes;
+      else if (text[i] === ',' && !inQuotes) { parts.push(cur); cur = ''; }
+      else cur += text[i];
+    }
+    parts.push(cur);
+    return parts.map(p => p.trim());
+  };
+
+  const parseCSVSingleShared = (text: string) => {
+    const lines = text.split('\n').filter(l => l.trim());
+    const hasHeader = lines[0].toLowerCase().includes('prompt');
+    return hasHeader ? lines.slice(1) : lines;
+  };
+
   const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -88,30 +109,47 @@ export function VideoStudio() {
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      const lines = text.split('\n').filter(line => line.trim());
+      const dataLines = parseCSVSingleShared(text);
       
-      // Skip header if it exists
-      const startIndex = lines[0].toLowerCase().includes('prompt') ? 1 : 0;
-      
-      const newItems: QueueItem[] = lines.slice(startIndex).map((line, index) => {
-        const prompt = line.trim().replace(/^["']|["']$/g, ''); // Remove quotes
-        return {
-          id: Date.now() + index,
-          prompt,
-          model,
-          ratio,
-          status: "pending" as const,
-          progress: 0,
-          timestamp: new Date(),
-          mode: videoMode,
-          startFrameUrl,
-          endFrameUrl,
-          ingredientImages,
-        };
-      }).filter(item => item.prompt); // Remove empty prompts
+      setQueue(prev => {
+        const pendingCount = prev.filter(i => i.status === "pending").length;
+        
+        if (pendingCount > 0) {
+          let applyIdx = 0;
+          return prev.map(item => {
+            if (item.status === "pending" && applyIdx < dataLines.length) {
+              const parts = parseCSVLineShared(dataLines[applyIdx]);
+              applyIdx++;
+              return {
+                ...item,
+                prompt: parts[1] || item.prompt,
+              };
+            }
+            return item;
+          });
+        }
+        
+        // No pending items to apply to; create new non-image items
+        const newItems: QueueItem[] = dataLines.map((line, index) => {
+          const parts = parseCSVLineShared(line);
+          const prompt = parts[1] || parts[0] || '';
+          return {
+            id: Date.now() + index,
+            prompt,
+            model: model,
+            ratio: ratio,
+            status: "pending" as const,
+            progress: 0,
+            timestamp: new Date(),
+            mode: videoMode,
+            startFrameUrl,
+            endFrameUrl,
+            ingredientImages,
+          };
+        }).filter(item => item.prompt);
 
-      setQueue([...newItems, ...queue]);
-      setShowSettingsModal(false);
+        return [...newItems, ...prev];
+      });
     };
 
     reader.readAsText(file);
@@ -141,6 +179,95 @@ export function VideoStudio() {
     
     setQueue([...newItems, ...queue]);
     setPrompt("");
+  };
+
+  const handleMultipleStartImages = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const csvFile = files.find(f => f.name.endsWith('.csv'));
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    
+    imageFiles.sort((a, b) => a.name.localeCompare(b.name));
+
+    const processImages = (configLines: string[]) => {
+      if (imageFiles.length === 0) {
+        if (csvFile) {
+          const newItems: QueueItem[] = configLines.map((line, index) => {
+            const parts = parseCSVLineShared(line);
+            return {
+              id: Date.now() + index,
+              prompt: parts[0] || '',
+              ratio: parts[1] || ratio,
+              model: parts[2] || model,
+              status: "pending" as const,
+              progress: 0,
+              timestamp: new Date(),
+              mode: videoMode,
+            } as QueueItem;
+          }).filter(i => i.prompt);
+          setQueue(prev => [...newItems, ...prev]);
+        }
+        return;
+      }
+
+      if (imageFiles.length === 1 && !csvFile && configLines.length <= 1) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) setStartFrameUrl(event.target.result as string);
+        };
+        reader.readAsDataURL(imageFiles[0]);
+        return;
+      }
+
+      let loadedCount = 0;
+      const newItems: QueueItem[] = [];
+
+      imageFiles.forEach((file, index) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            const line = configLines[index] || prompt || `Video from ${file.name}`;
+            const parts = parseCSVLineShared(line);
+            
+            newItems.push({
+              id: Date.now() + index,
+              prompt: parts[1] || line,
+              ratio: ratio,
+              model: model,
+              status: "pending" as const,
+              progress: 0,
+              timestamp: new Date(),
+              mode: videoMode,
+              startFrameUrl: event.target.result as string,
+              endFrameUrl,
+              ingredientImages,
+              fileName: file.name
+            });
+          }
+          loadedCount++;
+          if (loadedCount === imageFiles.length) {
+            newItems.sort((a, b) => a.id - b.id);
+            setQueue(prev => [...newItems, ...prev]);
+            setStartFrameUrl(newItems[0]?.startFrameUrl || "");
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    };
+
+    if (csvFile) {
+       const reader = new FileReader();
+       reader.onload = (ev) => {
+         const text = ev.target?.result as string;
+         processImages(parseCSVSingleShared(text));
+       };
+       reader.readAsText(csvFile);
+    } else {
+       const lines = prompt.split('\n').filter(l => l.trim());
+       processImages(lines.length > 1 ? lines : []);
+    }
+    e.target.value = '';
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (url: string) => void) => {
@@ -262,11 +389,27 @@ export function VideoStudio() {
 
   const generateAll = () => {
     const pendingItems = queue.filter(item => item.status === "pending");
-    pendingItems.forEach((item, index) => {
-      setTimeout(() => {
-        generateItem(item.id);
-      }, index * 300);
-    });
+    if (pendingItems.length === 0) return;
+
+    let currentIndex = 0;
+    let activeWorkers = 0;
+
+    const worker = async () => {
+      while (currentIndex < pendingItems.length) {
+        // Grab the next item
+        const itemIndex = currentIndex++;
+        const item = pendingItems[itemIndex];
+        
+        activeWorkers++;
+        await generateItem(item.id);
+        activeWorkers--;
+      }
+    };
+
+    // Start exactly `threads` number of workers concurrently
+    for (let i = 0; i < Math.min(threads, pendingItems.length); i++) {
+      worker();
+    }
   };
 
   const duplicateItem = (item: QueueItem) => {
@@ -293,6 +436,31 @@ export function VideoStudio() {
   const clearAll = () => {
     setQueue([]);
     setSelectedItem(null);
+  };
+
+  const downloadCSVTemplate = () => {
+    const pendingImages = queue.filter(item => item.status === "pending" && item.fileName);
+    const headers = ["File Name", "Prompt"];
+    
+    let rows: string[][] = [];
+    if (pendingImages.length > 0) {
+      rows = pendingImages.map(img => [img.fileName || "unknown.jpg", img.prompt || ""]);
+    } else {
+      rows = [
+        ["image1.jpg", "A cinematic wide shot of a futuristic city"],
+        ["image2.jpg", "A portrait of a cyberpunk character"]
+      ];
+    }
+
+    const csvContent = [headers.join(","), ...rows.map(r => r.map(v => `"${v}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "video_studio_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const pendingCount = queue.filter(item => item.status === "pending").length;
@@ -418,26 +586,47 @@ export function VideoStudio() {
             </div>
           </div>
 
-          {/* Mode Tabs */}
-          <div className="mt-8 flex items-center gap-2">
-            {[
-              { id: "text-to-video", label: "Text to Video" },
-              { id: "ingredients", label: "Ingredients" },
-              { id: "frames", label: "Frames" },
-              { id: "nano-video", label: "Nano Video" }
-            ].map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => setVideoMode(mode.id as typeof videoMode)}
-                className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                  videoMode === mode.id
-                    ? "bg-[#8b5cf6]/20 border-2 border-[#8b5cf6] text-[#8b5cf6]"
-                    : "bg-[#161d2f] border-2 border-[#161d2f] text-gray-400 hover:text-white hover:border-[#374151]"
-                }`}
-              >
-                {mode.label}
-              </button>
-            ))}
+          {/* Mode Tabs & Threading Controller */}
+          <div className="mt-8 flex justify-between items-center bg-[#0a0f1d] border border-[#161d2f] p-2 rounded-xl">
+            <div className="flex items-center gap-2">
+              {[
+                { id: "text-to-video", label: "Text to Video" },
+                { id: "ingredients", label: "Ingredients" },
+                { id: "frames", label: "Frames" },
+                { id: "nano-video", label: "Nano Video" }
+              ].map((mode) => (
+                <button
+                  key={mode.id}
+                  onClick={() => setVideoMode(mode.id as typeof videoMode)}
+                  className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                    videoMode === mode.id
+                      ? "bg-[#8b5cf6]/20 border-2 border-[#8b5cf6] text-[#8b5cf6]"
+                      : "bg-[#161d2f] border-2 border-[#161d2f] text-gray-400 hover:text-white hover:border-[#374151]"
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-4 px-4 py-2 bg-[#161d2f] rounded-lg border border-[#1f2937]">
+              <span className="text-gray-400 text-sm font-medium">Threads:</span>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setThreads(prev => Math.max(1, prev - 1))}
+                  className="w-6 h-6 rounded bg-[#0a0f1d] hover:bg-[#8b5cf6] hover:text-white flex items-center justify-center text-gray-400 transition-all font-mono"
+                >
+                  -
+                </button>
+                <span className="text-white font-mono w-4 text-center">{threads}</span>
+                <button 
+                  onClick={() => setThreads(prev => Math.min(10, prev + 1))}
+                  className="w-6 h-6 rounded bg-[#0a0f1d] hover:bg-[#8b5cf6] hover:text-white flex items-center justify-center text-gray-400 transition-all font-mono"
+                >
+                  +
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Frames Mode - Start & End Upload */}
@@ -449,10 +638,10 @@ export function VideoStudio() {
                   {startFrameUrl ? (
                     <img src={startFrameUrl} alt="Start Frame" className="absolute inset-0 w-full h-full object-cover" />
                   ) : null}
-                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*" onChange={(e) => handleImageUpload(e, setStartFrameUrl)} />
+                  <input type="file" multiple className="absolute inset-0 opacity-0 cursor-pointer z-10" accept="image/*,.csv" onChange={handleMultipleStartImages} />
                   <div className={`flex flex-col items-center justify-center transition-all z-0 ${startFrameUrl ? 'opacity-0 hover:opacity-100 bg-black/50 w-full h-full absolute inset-0' : ''}`}>
                     <Upload className="w-8 h-8 text-gray-600 group-hover:text-white transition-all" />
-                    <span className="text-gray-600 text-sm mt-2 group-hover:text-white">Upload Start Frame</span>
+                    <span className="text-gray-600 text-sm mt-2 group-hover:text-white text-center">Upload Start Frame(s) or CSV<br/><span className="text-gray-500 text-xs">Select multiple to auto-queue</span></span>
                   </div>
                 </div>
               </div>
@@ -540,10 +729,38 @@ export function VideoStudio() {
         {/* Queue Section */}
         {queue.length > 0 && (
           <div className="max-w-7xl mx-auto px-8 pb-12">
-            <div className="mb-6">
+            <div className="mb-6 flex items-center justify-between">
               <h2 className="text-white font-bold text-xl" style={{ fontFamily: 'Space Grotesk' }}>
                 Render Queue ({queue.length})
               </h2>
+              
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={downloadCSVTemplate}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#0a0f1d] hover:bg-[#1a1f30] border border-[#1f2937] hover:border-[#8b5cf6] rounded-lg cursor-pointer transition-all group"
+                  title="Download CSV Template"
+                >
+                  <Download className="w-4 h-4 text-gray-400 group-hover:text-[#8b5cf6]" />
+                  <span className="text-sm font-medium text-gray-300 group-hover:text-white">Template CSV</span>
+                </button>
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleCSVUpload}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    id="queue-csv-upload"
+                    title="Upload CSV"
+                  />
+                  <label
+                    htmlFor="queue-csv-upload"
+                    className="flex items-center gap-2 px-4 py-2 bg-[#161d2f] hover:bg-[#1a1f30] border border-[#1f2937] hover:border-[#8b5cf6] rounded-lg cursor-pointer transition-all group"
+                  >
+                    <Upload className="w-4 h-4 text-gray-400 group-hover:text-[#8b5cf6]" />
+                    <span className="text-sm font-medium text-gray-300 group-hover:text-white">Bulk Upload CSV</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
             {viewMode === "grid" ? (
@@ -1211,38 +1428,7 @@ export function VideoStudio() {
                   />
                 </div>
 
-                {/* Divider */}
-                <div className="border-t border-[#161d2f] my-6" />
 
-                {/* Bulk Upload */}
-                <div>
-                  <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-3">
-                    Bulk Upload
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="file"
-                      accept=".csv"
-                      onChange={handleCSVUpload}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                      id="csv-upload"
-                    />
-                    <label
-                      htmlFor="csv-upload"
-                      className="flex items-center justify-center gap-3 px-6 py-4 bg-[#161d2f] border-2 border-dashed border-[#1f2937] hover:border-[#8b5cf6] rounded-xl cursor-pointer transition-all group"
-                    >
-                      <Upload className="w-5 h-5 text-gray-500 group-hover:text-[#8b5cf6] transition-all" />
-                      <div className="text-left">
-                        <div className="text-white text-sm font-semibold group-hover:text-[#8b5cf6] transition-all">
-                          Upload CSV File
-                        </div>
-                        <div className="text-gray-600 text-xs">
-                          Bulk add prompts to queue
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                </div>
 
                 {/* Close Button */}
                 <div className="mt-8 flex justify-end">
