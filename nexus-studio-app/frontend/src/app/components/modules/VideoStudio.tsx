@@ -48,6 +48,26 @@ export function VideoStudio() {
   const [videoAspects, setVideoAspects] = useState<string[]>(DEFAULT_VIDEO_ASPECTS);
   const [modalVideoIndex, setModalVideoIndex] = useState(0);
 
+  const handleDownload = async (url: string, filename: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename || "video.mp4";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 100);
+    } catch (err) {
+      console.error("Download failed:", err);
+      // Fallback
+      window.open(url, '_blank');
+    }
+  };
+
   useEffect(() => {
     if (selectedItem) setModalVideoIndex(0);
   }, [selectedItem?.id]);
@@ -146,14 +166,16 @@ export function VideoStudio() {
           i.id === id ? { ...i, progress: status.progress ?? i.progress ?? 0 } : i
         ));
         if (status.status === "done" && status.result) {
-          const r = status.result as { videos?: Array<{ url?: string; video_url?: string; fifeUrl?: string }>; video?: { url?: string; fifeUrl?: string } };
-          const thumbnailUrl = `https://picsum.photos/seed/${id}/800/450`;
+          const r = status.result as { videos?: Array<{ url?: string; video_url?: string; fifeUrl?: string; thumbnail_url?: string }>; video?: { url?: string; fifeUrl?: string; thumbnail_url?: string } };
           let videoUrls: string[] = [];
+          let thumbnailUrl = "";
           if (r.videos?.length) {
             videoUrls = r.videos.map((v) => v?.url ?? v?.fifeUrl ?? v?.video_url ?? "").filter(Boolean);
+            thumbnailUrl = r.videos[0]?.thumbnail_url ?? "";
           } else if (r.video) {
             const u = r.video?.url ?? r.video?.fifeUrl;
             if (u) videoUrls = [u];
+            thumbnailUrl = r.video?.thumbnail_url ?? "";
           }
           const videoUrl = videoUrls[0];
           return { videoUrl, videoUrls, thumbnailUrl };
@@ -172,8 +194,7 @@ export function VideoStudio() {
           ...i, 
           status: "failed" as const, 
           progress: 100,
-          videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-          thumbnailUrl: `https://picsum.photos/seed/${id}/800/450`,
+          videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
         } : i
       ));
     }
@@ -548,14 +569,12 @@ export function VideoStudio() {
                                 >
                                   <Play className="w-6 h-6 text-white" />
                                 </button>
-                                <a 
-                                  href={item.videoUrl}
-                                  download
-                                  onClick={(e) => e.stopPropagation()}
+                                <button 
+                                  onClick={(e) => handleDownload(item.videoUrl!, `${item.prompt.slice(0, 30).replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`, e)}
                                   className="p-3 bg-[#10b981] hover:bg-[#059669] rounded-lg transition-all pointer-events-auto"
                                 >
                                   <Download className="w-5 h-5 text-white" />
-                                </a>
+                                </button>
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -681,13 +700,12 @@ export function VideoStudio() {
                               >
                                 <Play className="w-4 h-4 text-white" />
                               </button>
-                              <a 
-                                href={item.videoUrl}
-                                download
+                              <button 
+                                onClick={(e) => handleDownload(item.videoUrl!, `${item.prompt.slice(0, 30).replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`, e)}
                                 className="p-2 bg-[#161d2f] hover:bg-[#1a1f30] rounded-lg transition-all"
                               >
                                 <Download className="w-4 h-4 text-white" />
-                              </a>
+                              </button>
                               <button 
                                 onClick={() => removeItem(item.id)}
                                 className="p-2 bg-[#161d2f] hover:bg-[#1a1f30] rounded-lg transition-all"
@@ -807,8 +825,8 @@ export function VideoStudio() {
                       Prompt
                     </label>
                     <div className="p-4 bg-[#050810] border border-[#161d2f] rounded-lg">
-                      <p className="text-white font-mono text-sm leading-relaxed">
-                        {selectedItem.prompt}
+                      <p className="text-white font-mono text-sm leading-relaxed whitespace-pre-wrap break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                        {selectedItem.prompt.length > 250 ? `${selectedItem.prompt.slice(0, 250)}...` : selectedItem.prompt}
                       </p>
                     </div>
                   </div>
@@ -933,14 +951,13 @@ export function VideoStudio() {
                       Clone Video
                     </button>
                     <div className="flex gap-3">
-                      <a
-                        href={currentUrl}
-                        download
+                      <button
+                        onClick={(e) => handleDownload(currentUrl, `${selectedItem.prompt.slice(0, 30).replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mp4`, e)}
                         className="flex-1 px-6 py-3 bg-[#10b981] hover:bg-[#059669] rounded-xl text-white font-bold text-sm transition-all flex items-center justify-center gap-2"
                       >
                         <Download className="w-4 h-4" />
                         Download
-                      </a>
+                      </button>
                       <button
                         onClick={() => {
                           removeItem(selectedItem.id);
@@ -1036,7 +1053,7 @@ export function VideoStudio() {
                   <label className="block text-gray-500 text-xs font-medium uppercase tracking-wider mb-3">
                     Aspect Ratio
                   </label>
-                  <div className="grid grid-cols-4 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     {videoAspects.map(r => (
                       <button 
                         key={r}

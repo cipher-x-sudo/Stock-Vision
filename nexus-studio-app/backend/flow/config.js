@@ -88,7 +88,6 @@ export const VIDEO_ASPECTS = {
   '16:9 Landscape': 'VIDEO_ASPECT_RATIO_LANDSCAPE',
   '9:16 Portrait': 'VIDEO_ASPECT_RATIO_PORTRAIT',
   '1:1 Square': 'VIDEO_ASPECT_RATIO_UNSPECIFIED', // Square may not be directly supported, using UNSPECIFIED
-  '21:9 Cinewide': 'VIDEO_ASPECT_RATIO_UNSPECIFIED', // Cinewide not found in API, using UNSPECIFIED
 };
 
 export const VIDEO_RESOLUTIONS = {

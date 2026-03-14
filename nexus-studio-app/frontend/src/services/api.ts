@@ -298,7 +298,7 @@ export const api = {
         imageModels: ["Imagen 4", "Nano Banana", "Nano Banana Pro"],
         videoModels: ["Veo 3.1 - Fast (Audio)", "Veo 3.1 - Fast", "Veo 3.1 - Quality", "Veo 3.1 - I2V Start Image", "Veo 3.1 - Reference Images"],
         imageAspects: ["16:9 Landscape", "9:16 Portrait", "1:1 Square"],
-        videoAspects: ["16:9 Landscape", "9:16 Portrait", "1:1 Square", "21:9 Cinewide"],
+        videoAspects: ["16:9 Landscape", "9:16 Portrait", "1:1 Square"],
         defaults: {
           imageModel: "Nano Banana Pro",
           videoModel: "Veo 3.1 - Fast (Audio)",

@@ -741,6 +741,39 @@ async function runJob(jobId, state, body) {
   job.status = 'running';
   job.progress = 0;
   const outcome = await runGeneration(state, body, { onProgress: (p) => { job.progress = p; } });
+  
+  if (outcome.status === 'upscaling' && outcome.result && outcome.body && outcome.targetRes) {
+    job.status = 'upscaling';
+    job.result = outcome.result;
+    job.progress = 90;
+    
+    try {
+      const upscaleOutcome = await runUpscalePhase(
+        state,
+        outcome.result,
+        outcome.targetRes,
+        outcome.body,
+        (p) => {
+          job.progress = 90 + Math.floor(p * 0.1);
+        },
+        jobId
+      );
+      if (upscaleOutcome.success && upscaleOutcome.result) {
+        job.status = 'done';
+        job.result = upscaleOutcome.result;
+        job.progress = 100;
+        job.error = null;
+      } else {
+        job.status = 'error';
+        job.error = upscaleOutcome.error || 'Upscale failed';
+      }
+    } catch (e) {
+      job.status = 'error';
+      job.error = e.message;
+    }
+    return;
+  }
+
   job.status = outcome.status;
   job.result = outcome.result ?? null;
   job.error = outcome.error ?? null;

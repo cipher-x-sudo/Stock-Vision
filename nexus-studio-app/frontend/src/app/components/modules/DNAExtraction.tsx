@@ -77,8 +77,6 @@ function mapVideoAspectRatio(value: string): string {
       return "9:16 Portrait";
     case "1:1":
       return "1:1 Square";
-    case "21:9":
-      return "21:9 Cinewide";
     default:
       return "16:9 Landscape";
   }
